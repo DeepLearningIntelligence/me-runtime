@@ -63,7 +63,13 @@ export function createWhatsAppRouter(deps: WhatsAppRouterDeps): WhatsAppWebhookR
       const payload = parsePayload(bytes);
       const messages = inboundMessages(payload);
       const nonces = nonceMessages(messages);
-      if (nonces.length === 0) return dispatch(deps.messaging, forwardedRequest(request, bytes));
+      // Identical bytes re-sign to the same header, so every forward carries a
+      // signature the surface's own check accepts.
+      if (nonces.length === 0)
+        return dispatch(
+          deps.messaging,
+          forwardedRequest(request, deps.config.whatsappAppSecret, bytes),
+        );
       const nonceIds = new Set(nonces.map((message) => message.id));
       for (const message of nonces) {
         const result = await deps.signIn({
@@ -83,7 +89,13 @@ export function createWhatsAppRouter(deps: WhatsAppRouterDeps): WhatsAppWebhookR
       if (rest.length > 0) {
         const clone = structuredClone(payload) as Record<string, unknown> | undefined;
         stripMessages(clone, nonceIds);
-        return dispatch(deps.messaging, forwardedRequest(request, encode(clone)));
+        // The forwarded bytes differ from what Meta signed, so the surface's own
+        // signature check would answer 401 to the original header: re-sign the
+        // exact bytes we forward with the same app secret we verified with.
+        return dispatch(
+          deps.messaging,
+          forwardedRequest(request, deps.config.whatsappAppSecret, encode(clone)),
+        );
       }
       return Response.json({ ok: true });
     },
@@ -109,7 +121,12 @@ async function dispatch(
   return await messaging.handleWebhook("whatsapp", request);
 }
 
-function signatureValid(appSecret: string, headers: Headers, bytes: Uint8Array): boolean {
+/**
+ * The one verifier for a Meta WhatsApp webhook delivery, over the exact bytes.
+ * Exported so the surface layer and this module's tests check a forwarded
+ * delivery with the same function that gates the inbound one.
+ */
+export function signatureValid(appSecret: string, headers: Headers, bytes: Uint8Array): boolean {
   const header = headers.get(SIGNATURE_HEADER);
   if (!header) return false;
   const separator = header.indexOf("=");
@@ -121,6 +138,11 @@ function signatureValid(appSecret: string, headers: Headers, bytes: Uint8Array):
     digest.length === expected.length &&
     timingSafeEqual(Buffer.from(digest.toLowerCase()), Buffer.from(expected))
   );
+}
+
+/** The header value Meta itself would send for these bytes. */
+function signatureFor(appSecret: string, bytes: Uint8Array): string {
+  return `${SIGNATURE_SCHEME}=${createHmac(SIGNATURE_SCHEME, appSecret).update(bytes).digest("hex")}`;
 }
 
 function parsePayload(bytes: Uint8Array): unknown {
@@ -158,13 +180,18 @@ function inboundMessages(payload: unknown): InboundWhatsAppMessage[] {
 
 /**
  * A request the router can still hand to the surface after it has read the body
- * itself: identical bytes, identical headers.
+ * itself: identical bytes, identical headers except the signature, which is
+ * recomputed over the exact forwarded bytes. A batch the router filtered no
+ * longer matches what Meta signed, so forwarding the original header would make
+ * the surface's own check refuse the delivery.
  */
-function forwardedRequest(request: Request, bytes: Uint8Array): Request {
+function forwardedRequest(request: Request, appSecret: string, bytes: Uint8Array): Request {
+  const headers = new Headers(request.headers);
+  headers.set(SIGNATURE_HEADER, signatureFor(appSecret, bytes));
   // A fresh Uint8Array over the same bytes is a BodyInit the Request accepts.
   return new Request(request.url, {
     method: request.method,
-    headers: request.headers,
+    headers,
     body: new Uint8Array(bytes),
   });
 }

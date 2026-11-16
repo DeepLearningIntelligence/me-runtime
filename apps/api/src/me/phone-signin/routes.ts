@@ -4,6 +4,7 @@ import type { Context, Hono } from "hono";
 import { setSignedCookie } from "hono/cookie";
 import type { AppEnv } from "../../env.js";
 import { readBoundedBody } from "../../http-body.js";
+import { InviteError } from "../invitations/invitations.js";
 import { whatsAppDeepLink } from "../whatsapp-router.js";
 import { CODE_TTL_MS } from "./codes.js";
 import { PhoneSigninError, start, verify } from "./service.js";
@@ -30,6 +31,10 @@ const REFUSAL_STATUS: Record<string, { status: Status }> = {
   phone_mismatch: { status: 403 },
   code_invalid: { status: 400 },
   too_many_attempts: { status: 429 },
+  // Account creation through the phone door is invite-only; the named reasons
+  // are the invitations service's own (see INVITE_FAILURE_MESSAGE).
+  invite_required: { status: 403 },
+  invite_invalid: { status: 403 },
 };
 
 export function mountPhoneSigninRoutes(
@@ -52,9 +57,14 @@ export function mountPhoneSigninRoutes(
     if (!parsed) return refusal(c, "invalid_input", 400);
     const phone =
       typeof parsed.phone === "string" && parsed.phone.trim() ? parsed.phone.trim() : undefined;
+    const inviteToken =
+      typeof parsed.inviteToken === "string" && parsed.inviteToken.trim()
+        ? parsed.inviteToken.trim()
+        : undefined;
     try {
       const started = await start(deps.prisma, config, {
         phone,
+        inviteToken,
         ipAddress: deps.clientIp(c),
       });
       return c.json({
@@ -76,11 +86,18 @@ export function mountPhoneSigninRoutes(
     const code = typeof parsed.code === "string" ? parsed.code : undefined;
     if (!nonce || !code) return refusal(c, "invalid_input", 400);
     try {
-      const { phoneHash } = await verify(deps.prisma, config, { nonce, code });
-      const person = await signInVerifiedPhone(deps.prisma, deps.auth, deps.env, phoneHash, {
-        ipAddress: deps.clientIp(c),
-        userAgent: c.req.header("user-agent"),
-      });
+      const { phoneHash, inviteTokenHash } = await verify(deps.prisma, config, { nonce, code });
+      const person = await signInVerifiedPhone(
+        deps.prisma,
+        deps.auth,
+        deps.env,
+        phoneHash,
+        {
+          ipAddress: deps.clientIp(c),
+          userAgent: c.req.header("user-agent"),
+        },
+        inviteTokenHash,
+      );
       await setSessionCookie(c, deps.auth, person.token, person.expiresAt);
       return c.json({ ok: true });
     } catch (error) {
@@ -111,6 +128,9 @@ function refused(c: Context, error: unknown) {
   if (error instanceof PhoneSigninError) {
     return refusal(c, error.reason, (REFUSAL_STATUS[error.reason] ?? { status: 400 }).status);
   }
+  // A redemption refused at person-creation time carries the invitations
+  // service's own named reason; no user row was written.
+  if (error instanceof InviteError) return refusal(c, error.reason, 403);
   throw error;
 }
 

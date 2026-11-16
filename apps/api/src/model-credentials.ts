@@ -193,8 +193,7 @@ export async function writeModelCredential(
   prepared: Awaited<ReturnType<typeof prepareModelCredential>>,
   modelPolicy: string | undefined,
 ) {
-  // The lowest-level writer: every create or update of a connection row passes here, so
-  // the policy holds even for a caller that skipped the higher paths.
+  // The policy holds even for a caller that skipped the higher paths.
   assertModelConnectionWriteAllowed(modelPolicy);
   const { stored, defaultModel, allowedThinking } = prepared;
   throwIfAborted(input.signal);

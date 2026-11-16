@@ -1,7 +1,12 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { WhatsAppRouterDeps } from "./whatsapp-router.js";
-import { createWhatsAppRouter, ME_NONCE_PATTERN, whatsAppDeepLink } from "./whatsapp-router.js";
+import {
+  createWhatsAppRouter,
+  ME_NONCE_PATTERN,
+  signatureValid,
+  whatsAppDeepLink,
+} from "./whatsapp-router.js";
 
 const WEBHOOK_URL = "https://me.example/api/v1/messaging/webhook/whatsapp";
 const APP_SECRET = "test-app-secret";
@@ -59,10 +64,19 @@ function mount() {
     claimed.add(input.providerMessageId);
     return { handled: true, reply: REPLY };
   });
+  const handleWebhook = vi.fn<WhatsAppRouterDeps["messaging"]["handleWebhook"]>(
+    // What the real surface does: its own Meta signature check over the exact
+    // bytes it receives, using the same verifier the router gates with.
+    async (_provider, request) => {
+      const bytes = new Uint8Array(await request.clone().arrayBuffer());
+      if (!signatureValid(APP_SECRET, request.headers, bytes)) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      return new Response("surface handled", { status: 200 });
+    },
+  );
   const messaging = {
-    handleWebhook: vi.fn<WhatsAppRouterDeps["messaging"]["handleWebhook"]>(
-      async () => new Response("surface handled", { status: 200 }),
-    ),
+    handleWebhook,
     openDirectThread: vi.fn<WhatsAppRouterDeps["messaging"]["openDirectThread"]>(
       async () => "whatsapp:15550002222",
     ),
@@ -232,6 +246,11 @@ describe("whatsapp router", () => {
     expect(sendToThread).toHaveBeenCalledTimes(1);
     expect(handleWebhook).toHaveBeenCalledTimes(1);
     const [, forwarded] = handleWebhook.mock.calls[0]!;
+    // The surface verified the forward with Meta's own check (the fake answers
+    // 401 otherwise), so the router must have re-signed the filtered bytes.
+    expect(forwarded.headers.get("x-hub-signature-256")).not.toBe(
+      signedRequest(body).headers.get("x-hub-signature-256"),
+    );
     const delivered = JSON.parse(await forwarded.text()) as {
       entry: { changes: { value: { messages: { id: string }[] } }[] }[];
     };

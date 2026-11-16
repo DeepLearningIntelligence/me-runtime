@@ -17,6 +17,7 @@ type SigninRow = {
   id: string;
   nonceHash: string;
   phoneHash: string | null;
+  inviteTokenHash: string | null;
   codeHash: string | null;
   boundAt: Date | null;
   consumedAt: Date | null;
@@ -35,10 +36,12 @@ function fakePrisma() {
     Object.entries(where).every(([field, condition]) => {
       const value = row[field as keyof SigninRow];
       if (condition !== null && typeof condition === "object" && !(condition instanceof Date)) {
-        const bound = (condition as { gt?: Date }).gt;
-        return bound !== undefined
-          ? value instanceof Date && value.getTime() > bound.getTime()
-          : false;
+        const bound = condition as { gt?: Date; lt?: number };
+        if (bound.gt !== undefined)
+          return value instanceof Date && value.getTime() > bound.gt.getTime();
+        // The attempt charge's conditional update.
+        if (bound.lt !== undefined) return typeof value === "number" && value < bound.lt;
+        return false;
       }
       return value === condition;
     });
@@ -64,6 +67,7 @@ function fakePrisma() {
       const row: SigninRow = {
         id: `row-${nextId++}`,
         phoneHash: null,
+        inviteTokenHash: null,
         codeHash: null,
         boundAt: null,
         consumedAt: null,
@@ -75,8 +79,12 @@ function fakePrisma() {
       signins.push(row);
       return row;
     },
-    findUnique: async ({ where }: { where: { nonceHash: string } }) =>
-      signins.find((row) => row.nonceHash === where.nonceHash) ?? null,
+    // A read returns a snapshot, as a database read would: later writes are not
+    // visible to a row another call already read.
+    findUnique: async ({ where }: { where: { nonceHash: string } }) => {
+      const row = signins.find((candidate) => candidate.nonceHash === where.nonceHash);
+      return row ? { ...row } : null;
+    },
     update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
       const row = signins.find((candidate) => candidate.id === where.id);
       if (!row) throw { code: "P2025" };
@@ -152,19 +160,19 @@ describe("phone sign-in", () => {
     const config = makeConfig(() => now);
     const started = await start(fake.prisma, config, { ipAddress: "10.0.0.9" });
 
-    const outcome = await bind(fake, config, started.nonce, "+15550001000", "wamid.first");
+    const outcome = await bind(fake, config, started.nonce, "15550001000", "wamid.first");
     expect(outcome).toMatchObject({ reply: expect.stringMatching(/^\d{6}$/) });
     const code = (outcome as { reply: string }).reply;
 
     // Bound: the same nonce in a later message mints nothing more.
     await expect(
-      bind(fake, config, started.nonce, "+15550001000", "wamid.second"),
+      bind(fake, config, started.nonce, "15550001000", "wamid.second"),
     ).resolves.toMatchObject({ reply: null, reason: "already_bound" });
     expect(fake.signins[0]!.codeHash).toMatch(/^[0-9a-f]{64}$/);
     expect(fake.signins[0]!.codeHash).not.toBe(code);
 
     const verified = await verify(fake.prisma, config, { nonce: started.nonce, code });
-    expect(verified.phoneHash).toBe(hashIdentifier("phone", key, "+15550001000"));
+    expect(verified.phoneHash).toBe(hashIdentifier("phone", key, "15550001000"));
   });
 
   it("never mints a second code for a replayed provider message id", async () => {
@@ -174,22 +182,22 @@ describe("phone sign-in", () => {
 
     // The claim outlives a delivery that did nothing: this door is unknown.
     await expect(
-      bind(fake, config, "ME-UNKNOWN1", "+15550001000", "wamid.reuse"),
+      bind(fake, config, "ME-UNKNOWN1", "15550001000", "wamid.reuse"),
     ).resolves.toMatchObject({ reply: null, reason: "nonce_unknown" });
 
     const started = await start(fake.prisma, config, {});
-    const minted = await bind(fake, config, started.nonce, "+15550001000", "wamid.fresh");
+    const minted = await bind(fake, config, started.nonce, "15550001000", "wamid.fresh");
     expect(minted).toMatchObject({ reply: expect.any(String) });
     const codeHash = fake.signins[0]!.codeHash;
 
     // Meta retries the same message id: claimed, no second code, hash unchanged.
     await expect(
-      bind(fake, config, started.nonce, "+15550001000", "wamid.fresh"),
+      bind(fake, config, started.nonce, "15550001000", "wamid.fresh"),
     ).resolves.toMatchObject({ reply: null, reason: "replayed" });
     // The claimed id also cannot mint a code for a different, unbound door.
     const other = await start(fake.prisma, config, {});
     await expect(
-      bind(fake, config, other.nonce, "+15550001000", "wamid.fresh"),
+      bind(fake, config, other.nonce, "15550001000", "wamid.fresh"),
     ).resolves.toMatchObject({ reply: null, reason: "replayed" });
     expect(fake.signins[0]!.codeHash).toBe(codeHash);
   });
@@ -202,7 +210,7 @@ describe("phone sign-in", () => {
 
     now = BASE + 10 * 60_000 + 1;
     await expect(
-      bind(fake, config, started.nonce, "+15550001000", "wamid.late"),
+      bind(fake, config, started.nonce, "15550001000", "wamid.late"),
     ).resolves.toMatchObject({ reply: null, reason: "code_expired" });
     await expect(
       verify(fake.prisma, config, { nonce: started.nonce, code: "123456" }),
@@ -218,20 +226,20 @@ describe("phone sign-in", () => {
     // A different sender is refused before any code exists, and the door is not
     // poisoned: the right phone can still open it.
     await expect(
-      bind(fake, config, started.nonce, "+15550002000", "wamid.stranger"),
+      bind(fake, config, started.nonce, "15550002000", "wamid.stranger"),
     ).resolves.toMatchObject({ reply: null, reason: "phone_mismatch" });
     expect(fake.signins[0]!.codeHash).toBeNull();
     await expect(
       verify(fake.prisma, config, { nonce: started.nonce, code: "123456" }),
     ).rejects.toMatchObject({ reason: "code_invalid" });
 
-    const outcome = await bind(fake, config, started.nonce, "+15550001000", "wamid.owner");
+    const outcome = await bind(fake, config, started.nonce, "15550001000", "wamid.owner");
     expect(outcome).toMatchObject({ reply: expect.stringMatching(/^\d{6}$/) });
     const verified = await verify(fake.prisma, config, {
       nonce: started.nonce,
       code: (outcome as { reply: string }).reply,
     });
-    expect(verified.phoneHash).toBe(hashIdentifier("phone", key, "+15550001000"));
+    expect(verified.phoneHash).toBe(hashIdentifier("phone", key, "15550001000"));
   });
 
   it("refuses the sixth attempt with a lockout name", async () => {
@@ -239,7 +247,7 @@ describe("phone sign-in", () => {
     const fake = fakePrisma();
     const config = makeConfig(() => now);
     const started = await start(fake.prisma, config, {});
-    const outcome = await bind(fake, config, started.nonce, "+15550001000", "wamid.first");
+    const outcome = await bind(fake, config, started.nonce, "15550001000", "wamid.first");
     const code = (outcome as { reply: string }).reply;
 
     for (let attempt = 1; attempt <= 5; attempt += 1) {
@@ -271,7 +279,7 @@ describe("phone sign-in", () => {
     ]) {
       await expect(
         handleInbound(fake.prisma, config, {
-          from: "+15550001000",
+          from: "15550001000",
           body,
           providerMessageId: "wamid.x",
         }),
@@ -286,7 +294,7 @@ describe("phone sign-in", () => {
     const fake = fakePrisma();
     const config = makeConfig(() => now);
     const started = await start(fake.prisma, config, {});
-    const outcome = await bind(fake, config, started.nonce, "+15550001000", "wamid.first");
+    const outcome = await bind(fake, config, started.nonce, "15550001000", "wamid.first");
     const code = (outcome as { reply: string }).reply;
 
     await verify(fake.prisma, config, { nonce: started.nonce, code });
@@ -321,7 +329,7 @@ describe("phone sign-in", () => {
       handleInbound(
         fake.prisma,
         { identityHashKey: undefined, now: () => now },
-        { from: "+15550001000", body: "ME-ABC123", providerMessageId: "wamid.x" },
+        { from: "15550001000", body: "ME-ABC123", providerMessageId: "wamid.x" },
       ),
     ).rejects.toMatchObject({ reason: "identity_key_missing" });
 
@@ -329,5 +337,58 @@ describe("phone sign-in", () => {
     await expect(start(fake.prisma, config, { phone: "not-a-number" })).rejects.toBeInstanceOf(
       PhoneSigninError,
     );
+  });
+
+  it("binds a door opened for +15551234567 when the webhook sends 15551234567", async () => {
+    const now = BASE;
+    const fake = fakePrisma();
+    const config = makeConfig(() => now);
+    // The browser supplies E.164 with a plus; the webhook sender is the wa_id.
+    const started = await start(fake.prisma, config, { phone: "+15551234567" });
+
+    const outcome = await bind(fake, config, started.nonce, "15551234567", "wamid.plus");
+    expect(outcome).toMatchObject({ reply: expect.stringMatching(/^\d{6}$/) });
+    const code = (outcome as { reply: string }).reply;
+    const verified = await verify(fake.prisma, config, { nonce: started.nonce, code });
+    expect(verified.phoneHash).toBe(hashIdentifier("phone", key, "15551234567"));
+    expect(verified.phoneHash).toBe(hashIdentifier("phone", key, "+15551234567"));
+  });
+
+  it("evaluates at most one of two concurrent guesses after the fourth attempt", async () => {
+    const now = BASE;
+    const fake = fakePrisma();
+    const config = makeConfig(() => now);
+    const started = await start(fake.prisma, config, {});
+    const outcome = await bind(fake, config, started.nonce, "15550001000", "wamid.first");
+    const code = (outcome as { reply: string }).reply;
+
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      await expect(
+        verify(fake.prisma, config, { nonce: started.nonce, code: "000000" }),
+      ).rejects.toMatchObject({ reason: "code_invalid" });
+    }
+    expect(fake.signins[0]!.attempts).toBe(4);
+
+    // Both land after the fourth charge: the conditional update charges one,
+    // so exactly one guess is evaluated and the lockout holds for the other.
+    const [first, second] = await Promise.allSettled([
+      verify(fake.prisma, config, { nonce: started.nonce, code: "111111" }),
+      verify(fake.prisma, config, { nonce: started.nonce, code: "222222" }),
+    ]);
+    const reasons = [first, second].map((settled) =>
+      settled.status === "rejected" && settled.reason instanceof PhoneSigninError
+        ? settled.reason.reason
+        : "resolved",
+    );
+    expect(reasons.sort()).toEqual(["code_invalid", "too_many_attempts"]);
+    expect(fake.signins[0]!.attempts).toBe(5);
+
+    // Charged out: even the correct code is refused now.
+    await expect(verify(fake.prisma, config, { nonce: started.nonce, code })).rejects.toMatchObject(
+      {
+        reason: "too_many_attempts",
+      },
+    );
+    expect(fake.signins[0]!.consumedAt).toBeNull();
   });
 });

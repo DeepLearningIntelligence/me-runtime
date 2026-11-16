@@ -35,7 +35,10 @@ type RpcPath<T, Prefix extends string = ""> = T extends { "~orpc": unknown }
         [Key in keyof T & string]: RpcPath<T[Key], Prefix extends "" ? Key : `${Prefix}/${Key}`>;
       }[keyof T & string]
     : never;
-type ProtectedRpcPath = Exclude<RpcPath<typeof appContract>, "health">;
+// `health` and the public `invites/inspect` pre-flight are mounted without the
+// auth middleware, so they are excluded here; the exhaustive call list below can
+// only name procedures that answer 401 unauthenticated.
+type ProtectedRpcPath = Exclude<RpcPath<typeof appContract>, "health" | "invites/inspect">;
 
 process.env.WAKEUP_DRIVER = "memory";
 process.env.SANDBOX_PROVIDER = "fake";
@@ -241,7 +244,6 @@ describeWithDatabase("API authorization and resource isolation", () => {
       ["invites/issue"],
       ["invites/list"],
       ["invites/revoke", { id: "00000000-0000-4000-8000-000000000000" }],
-      ["invites/inspect", { token: "not-a-real-token" }],
       ["deployment/get"],
       ["deployment/update", { signupsEnabled: true }],
       ["updater/status"],

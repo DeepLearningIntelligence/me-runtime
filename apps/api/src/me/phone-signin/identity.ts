@@ -31,12 +31,15 @@ function hashKey(source: string): Buffer {
 
 /**
  * One person is one identity, so the same value must land on the same string.
- * A phone is E.164 with no spaces; emails are case-insensitive. Validity is the
- * door's job before a value gets here, not this function's.
+ * A phone is canonicalised to digits only, no leading `+`: the WhatsApp
+ * webhook's sender shape (the `wa_id`). Every entry point hashes phones through
+ * this one function, so a door opened for `+15551234567` binds the message that
+ * arrives from `15551234567`; validity is the door's job before a value gets
+ * here, not this function's. Emails are case-insensitive.
  */
 export function normaliseIdentifier(kind: IdentifierKind, value: string): string {
   if (kind === "email") return value.trim().toLowerCase();
-  return value.replace(/\s+/g, "");
+  return value.replace(/\D/g, "");
 }
 
 /**

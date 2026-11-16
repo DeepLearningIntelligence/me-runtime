@@ -2,7 +2,9 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Auth } from "@rakazo/auth";
 import { CLIENT_IP_HEADER } from "@rakazo/auth";
 import type { PrismaClient, SignupPolicyEnv } from "@rakazo/db";
-import { bootstrapUserSpace, isUniqueViolation } from "@rakazo/db";
+import { bootstrapUserSpace, isUniqueViolation, runAsSystem } from "@rakazo/db";
+import { redeemInviteByHash } from "../invitations/invitations.js";
+import { PhoneSigninError } from "./service.js";
 
 /** The undeliverable email domain a phone-created person carries until onboarding connects one. */
 export const PHONE_EMAIL_DOMAIN = "phone.invalid";
@@ -18,6 +20,11 @@ export const PHONE_EMAIL_DOMAIN = "phone.invalid";
  * session is issued, so the auth session hook finds an admitted member instead
  * of a closed signup, and the session itself is issued through the auth
  * layer's `issueSession`, which runs the same hooks as every sign-in.
+ *
+ * Admission has one owner: the invitations service. Creating the person through
+ * the phone door requires the valid invitation the door was opened with, and
+ * its redemption commits or rolls back with the person it admits; a person who
+ * already exists signs in again without one.
  */
 
 export type VerifiedPersonSession = {
@@ -37,7 +44,9 @@ export function phoneUserId(phoneHash: string): string {
 /**
  * Finds or creates the person for a verified phone and issues their session.
  * The display name is neutral until onboarding collects the person's name; it
- * carries no phone digits, because the number itself is never stored.
+ * carries no phone digits, because the number itself is never stored. The
+ * invite hash is the one the pending row carried: null admits only a person
+ * who already exists.
  */
 export async function signInVerifiedPhone(
   prisma: PrismaClient,
@@ -45,34 +54,49 @@ export async function signInVerifiedPhone(
   env: SignupPolicyEnv,
   phoneHash: string,
   request: { ipAddress?: string; userAgent?: string } = {},
+  inviteTokenHash?: string | null,
 ): Promise<VerifiedPersonSession> {
   const userId = phoneUserId(phoneHash);
   const found = await prisma.user.findUnique({ where: { id: userId } });
-  const context = await auth.$context;
+  if (!found && !inviteTokenHash) throw new PhoneSigninError("invite_required");
+
   const user =
     found ??
-    (await context.internalAdapter
-      .createUser(
-        {
-          id: userId,
-          name: "Phone person",
-          email: `phone-${randomBytes(16).toString("hex")}@${PHONE_EMAIL_DOMAIN}`,
-        },
-        { method: "phone-number" },
-      )
-      .catch((error: unknown) => {
-        if (!isUniqueViolation(error)) throw error;
-        // A concurrent first sign-in created the person; join its row.
-        return prisma.user.findUniqueOrThrow({ where: { id: userId } });
-      }));
+    (await runAsSystem("phone sign-in: admit the invited person", () =>
+      prisma.$transaction(async (tx) => {
+        // False when a concurrent first sign-in created the person first: join
+        // its row and leave this link unspent, exactly like a returning person.
+        let createdHere = true;
+        const created = await tx.user
+          .create({
+            data: {
+              id: userId,
+              name: "Phone person",
+              email: `phone-${randomBytes(16).toString("hex")}@${PHONE_EMAIL_DOMAIN}`,
+            },
+          })
+          .catch(async (error: unknown) => {
+            if (!isUniqueViolation(error)) throw error;
+            createdHere = false;
+            return tx.user.findUniqueOrThrow({ where: { id: userId } });
+          });
+        // One invite, one account: the redemption is in the same transaction
+        // that creates the person, so a lost claim rolls back with the person.
+        if (createdHere) {
+          await redeemInviteByHash(tx, { tokenHash: inviteTokenHash!, userId });
+        }
 
-  // One membership is what the auth session hook requires; create it before the
-  // session so a closed signup policy cannot refuse a verified phone.
-  const membership = await prisma.spaceMember.findFirst({
-    where: { userId: user.id, space: { deletingAt: null } },
-    select: { id: true },
-  });
-  if (!membership) await bootstrapUserSpace(prisma, user, env);
+        // One membership is what the auth session hook requires; create it
+        // before the session so a closed signup policy cannot refuse a
+        // verified, invited phone.
+        const membership = await tx.spaceMember.findFirst({
+          where: { userId: created.id, space: { deletingAt: null } },
+          select: { id: true },
+        });
+        if (!membership) await bootstrapUserSpace(tx, created, env);
+        return created;
+      }),
+    ));
 
   const headers = new Headers();
   if (request.userAgent) headers.set("user-agent", request.userAgent);

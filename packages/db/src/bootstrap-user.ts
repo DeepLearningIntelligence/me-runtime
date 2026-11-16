@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { signupPolicyFromEnv } from "@rakazo/core";
-import type { PrismaClient } from "./client.js";
+import type { Prisma, PrismaClient } from "./client.js";
 import { isUniqueViolation } from "./prisma-errors.js";
 
 export interface SignupPolicyEnv {
@@ -99,9 +99,11 @@ export async function createOrganizationWithDefaultSpace(
   return orgId;
 }
 
-/** Provision a personal workspace. Signup never grants deployment administration. */
+/** Provision a personal workspace. Signup never grants deployment administration.
+ * Accepts a transaction client, so an admission that must commit atomically (the
+ * phone door creating the person and spending its invite) can include it. */
 export async function bootstrapUserSpace(
-  prisma: PrismaClient,
+  prisma: PrismaClient | Prisma.TransactionClient,
   user: { id: string },
   env: SignupPolicyEnv,
 ): Promise<{ spaceId: string }> {

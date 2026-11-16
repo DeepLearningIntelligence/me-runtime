@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@rakazo/db";
 import { isUniqueViolation, runAsSystem } from "@rakazo/db";
+import { hashInviteToken, inspectInvite } from "../invitations/invitations.js";
 import {
   CODE_TTL_MS,
   constantTimeEqualsHex,
@@ -23,6 +24,8 @@ import { hashIdentifier, normaliseIdentifier } from "./identity.js";
  *   is not known yet, so no code exists; the caller builds the `wa.me` link
  *   carrying `ME-<nonce>` with the router's deep-link builder, after checking
  *   the business number is configured, so no row outlives an undeliverable door.
+ *   An `inviteToken` the page carried is pre-flighted against the invitations
+ *   service (which owns admission) and stored only as its hash on the row.
  * - `handleInbound` binds: a signed WhatsApp webhook hands over one message.
  *   Text matching `^ME-[A-Z0-9]{6,}$` binds the nonce to the sender's phone and
  *   mints a six-digit code, stored only as its hash. Anything else returns
@@ -31,11 +34,16 @@ import { hashIdentifier, normaliseIdentifier } from "./identity.js";
  *   replayed delivery never mints a second code, and a bound nonce never binds
  *   again.
  * - `verify` redeems: code and pending token are compared in constant time, the
- *   redemption is single use, wrong guesses are charged to the row, the sixth
- *   attempt is refused by name, and a code minted for one phone can never
- *   verify another because the row keeps the phone hash it was bound with.
+ *   redemption is single use, wrong guesses are charged to the row by a
+ *   conditional update before the compare (parallel guesses cannot all read
+ *   zero), the sixth attempt is refused by name, and a code minted for one
+ *   phone can never verify another because the row keeps the phone hash it was
+ *   bound with. The row's invite hash rides along: creating the person needs a
+ *   valid invitation, an existing person does not.
  *
- * No key, nonce or code is ever logged; the caller delivers the reply text.
+ * Phones are hashed through `normaliseIdentifier`, the one canonical form
+ * (digits, no `+`). No key, nonce, code or token is ever logged; the caller
+ * delivers the reply text.
  */
 
 export type PhoneSigninConfig = {
@@ -55,7 +63,9 @@ export type PhoneSigninFailure =
   | "already_bound"
   | "phone_mismatch"
   | "code_invalid"
-  | "too_many_attempts";
+  | "too_many_attempts"
+  | "invite_required"
+  | "invite_invalid";
 
 export class PhoneSigninError extends Error {
   constructor(readonly reason: PhoneSigninFailure) {
@@ -71,7 +81,11 @@ export type StartedSignin = {
 };
 
 export type InboundMessage = {
-  /** The sender's E.164 number, as the verified webhook delivered it. */
+  /**
+   * The sender's phone as the webhook delivered it: the WhatsApp `wa_id`,
+   * digits without a `+`. `normaliseIdentifier` is the one canonical form, so a
+   * `+`-prefixed value the caller passes lands on the same hash.
+   */
   from: string;
   body: string;
   providerMessageId: string;
@@ -93,27 +107,42 @@ export type InboundOutcome =
 export type VerifiedPhone = {
   /** The bound phone's HMAC; the caller turns it into a person and a session. */
   phoneHash: string;
+  /**
+   * The invite the door was opened with, as the invitations service stores it.
+   * Creating the person requires one (the phone door is invite-only); a person
+   * who already exists signs in again without it.
+   */
+  inviteTokenHash: string | null;
 };
 
 const PROVIDER = "whatsapp";
 
+/** The one canonical phone check, over the digits `normaliseIdentifier` leaves. */
 function requirePhoneValue(phone: string): string {
   const normalised = normaliseIdentifier("phone", phone);
-  if (!/^\+[1-9]\d{6,14}$/.test(normalised)) throw new PhoneSigninError("invalid_phone");
+  if (!/^[1-9]\d{6,14}$/.test(normalised)) throw new PhoneSigninError("invalid_phone");
   return normalised;
 }
 
 /**
  * Opens a door. The phone may be empty: the number is learned from the WhatsApp
- * message. Nothing is created when the door cannot be delivered, and one
- * address cannot farm pending rows.
+ * message. An `inviteToken` (the raw link token) is pre-flighted against the
+ * invitations service, the one admission owner, and only its hash is stored;
+ * an unusable one refuses by name before any row exists. Nothing is created
+ * when the door cannot be delivered, and one address cannot farm pending rows.
  */
 export async function start(
   prisma: PrismaClient,
   config: PhoneSigninConfig,
-  input: { phone?: string; ipAddress?: string } = {},
+  input: { phone?: string; inviteToken?: string; ipAddress?: string } = {},
 ): Promise<StartedSignin> {
   if (!config.identityHashKey) throw new PhoneSigninError("identity_key_missing");
+
+  const inviteToken = input.inviteToken?.trim();
+  if (inviteToken) {
+    const inspection = await inspectInvite(prisma, inviteToken);
+    if (!inspection.ok) throw new PhoneSigninError("invite_invalid");
+  }
 
   const phoneHash = input.phone
     ? hashIdentifier("phone", config.identityHashKey, requirePhoneValue(input.phone))
@@ -130,7 +159,13 @@ export async function start(
   const nonce = newNonce();
   const expiresAt = new Date(now + CODE_TTL_MS);
   await prisma.mePhoneSignin.create({
-    data: { nonceHash: sha256Hex(nonce), phoneHash, expiresAt, ipAddress },
+    data: {
+      nonceHash: sha256Hex(nonce),
+      phoneHash,
+      inviteTokenHash: inviteToken ? hashInviteToken(inviteToken) : null,
+      expiresAt,
+      ipAddress,
+    },
   });
   return {
     nonce,
@@ -204,6 +239,9 @@ export async function handleInbound(
 /**
  * Redeems a code once, in constant time, and returns the phone it was minted
  * for. Refusals are named; a wrong guess is charged to the row it belongs to.
+ * The charge is a conditional update (`attempts < MAX`) evaluated before the
+ * compare, so parallel guesses cannot all read zero: one of two concurrent
+ * attempts is charged, the other is refused by name without a write.
  */
 export async function verify(
   prisma: PrismaClient,
@@ -218,11 +256,16 @@ export async function verify(
   if (row.attempts >= MAX_CODE_ATTEMPTS) throw new PhoneSigninError("too_many_attempts");
   if (!row.boundAt || !row.codeHash) throw new PhoneSigninError("code_invalid");
 
+  // The charge is the concurrency guard: the WHERE clause is re-evaluated
+  // against the committed row, so of two parallel guesses exactly one is
+  // charged and evaluated; reading then writing would let both through.
+  const charged = await prisma.mePhoneSignin.updateMany({
+    where: { id: row.id, attempts: { lt: MAX_CODE_ATTEMPTS } },
+    data: { attempts: { increment: 1 } },
+  });
+  if (charged.count !== 1) throw new PhoneSigninError("too_many_attempts");
+
   if (!constantTimeEqualsHex(row.codeHash, sha256Hex(input.code.trim()))) {
-    await prisma.mePhoneSignin.update({
-      where: { id: row.id },
-      data: { attempts: { increment: 1 } },
-    });
     throw new PhoneSigninError("code_invalid");
   }
 
@@ -233,7 +276,7 @@ export async function verify(
   });
   if (claimed.count !== 1) throw new PhoneSigninError("code_invalid");
   if (!row.phoneHash) throw new PhoneSigninError("code_invalid");
-  return { phoneHash: row.phoneHash };
+  return { phoneHash: row.phoneHash, inviteTokenHash: row.inviteTokenHash ?? null };
 }
 
 function nowOf(config: PhoneSigninConfig): number {

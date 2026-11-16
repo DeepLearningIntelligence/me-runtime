@@ -37,15 +37,18 @@ CREATE INDEX "me_invitations_inviterId_createdAt_idx"
 -- An invite is cross-person by design (the redeemer is not the inviter), so the
 -- service reads and claims rows as system. The tenant policy is defence in
 -- depth: the inviter's own rows are visible to their own tenant context, and
--- everything else refuses without the bypass.
+-- everything else refuses without the bypass. The system policies go through
+-- app_rls_bypass() (see 20261114120000_rls_bypass_key): any tenant session could
+-- set the plain app.rls_bypass GUC, so a policy that read it directly was not a
+-- bypass check at all.
 ALTER TABLE "me_invite_quotas" ENABLE ROW LEVEL SECURITY;
 CREATE POLICY me_invite_quotas_tenant ON "me_invite_quotas"
   USING ("userId" = NULLIF(current_setting('app.user_id', true), ''));
 CREATE POLICY me_invite_quotas_system ON "me_invite_quotas"
-  USING (current_setting('app.rls_bypass', true) = 'on');
+  USING ((SELECT app_rls_bypass()));
 
 ALTER TABLE "me_invitations" ENABLE ROW LEVEL SECURITY;
 CREATE POLICY me_invitations_tenant ON "me_invitations"
   USING ("inviterId" = NULLIF(current_setting('app.user_id', true), ''));
 CREATE POLICY me_invitations_system ON "me_invitations"
-  USING (current_setting('app.rls_bypass', true) = 'on');
+  USING ((SELECT app_rls_bypass()));

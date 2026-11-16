@@ -2797,10 +2797,14 @@ model MePhoneSignin {
   id        String   @id @default(cuid())
   /// SHA-256 of the `ME-<nonce>` text the browser holds and sends from WhatsApp.
   nonceHash String   @unique
-  /// HMAC of the sender's E.164 number, set when the WhatsApp message binds the nonce.
+  /// HMAC of the sender's phone in the one canonical form (digits, no `+`),
+  /// set when the WhatsApp message binds the nonce.
   phoneHash String?
   /// SHA-256 of the six-digit code; null until a message binds the phone.
   codeHash  String?
+  /// SHA-256 of the invite link token the door was opened with; creating the
+  /// person at verify time requires it, a person who exists does not.
+  inviteTokenHash String?
   /// When the nonce was bound to a phone; a bound row never binds again.
   boundAt   DateTime?
   /// Set when the code verifies, so a code is redeemed once.

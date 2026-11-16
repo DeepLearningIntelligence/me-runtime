@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import type { PrismaClient } from "@rakazo/db";
+import type { Prisma, PrismaClient } from "@rakazo/db";
 import { runAsSystem, withTransactionRetry } from "@rakazo/db";
 
 /**
@@ -95,9 +95,59 @@ export async function issueInvite(
 }
 
 /**
- * Claims an invitation for the person whose account is being created. The
- * claim, the quota count and nothing else land or roll back together: of two
- * concurrent redeemers exactly one wins, and every refusal carries its reason.
+ * The one invite claim. `params.tokenHash` is what the invitations service
+ * stores, so the phone door can redeem the hash it kept on its pending row
+ * inside the same transaction that creates the person. Of two concurrent
+ * redeemers exactly one wins, and every refusal carries its reason.
+ */
+async function claimInvite(
+  tx: Prisma.TransactionClient,
+  params: { tokenHash: string; userId: string },
+): Promise<{ inviterId: string; inviterName: string }> {
+  const invite = await tx.meInvite.findUnique({ where: { tokenHash: params.tokenHash } });
+
+  if (!invite) throw new InviteError("invalid");
+  if (invite.status === "revoked") throw new InviteError("revoked");
+  if (invite.status === "redeemed") throw new InviteError("already_redeemed");
+  if (invite.expiresAt.getTime() <= Date.now()) throw new InviteError("expired");
+
+  // Quota is claimed first so a full inviter cannot consume a token, and
+  // the claim rolls back with this transaction if the one below loses.
+  // A person without a quota row cannot pass a zero bound; every token
+  // comes from an issue that created the row, so reaching here means the
+  // row is gone.
+  const quota = await tx.meInviteQuota.findUnique({ where: { userId: invite.inviterId } });
+  const counted = await tx.meInviteQuota.updateMany({
+    where: { userId: invite.inviterId, redeemedCount: { lt: quota?.allocation ?? 0 } },
+    data: { redeemedCount: { increment: 1 } },
+  });
+  if (counted.count === 0) throw new InviteError("quota_exceeded");
+
+  // The double-spend guard: the predicate is re-evaluated against the
+  // committed row, so of two racers only the first commits a claim.
+  const claimed = await tx.meInvite.updateMany({
+    where: { id: invite.id, status: "issued" },
+    data: {
+      status: "redeemed",
+      redeemedAt: new Date(),
+      redeemedByUserId: params.userId,
+    },
+  });
+  if (claimed.count === 0) throw new InviteError("already_redeemed");
+
+  const inviter = await tx.user.findUnique({
+    where: { id: invite.inviterId },
+    select: { name: true },
+  });
+  return { inviterId: invite.inviterId, inviterName: inviter?.name ?? "" };
+}
+
+/**
+ * Claims an invitation for the person whose account is being created, in its
+ * own transaction: the claim, the quota count and nothing else land or roll
+ * back together. A caller that must claim inside a larger transaction (the
+ * phone door creating the person) uses `redeemInviteByHash` on its own `tx`,
+ * so there is one claim implementation.
  */
 export async function redeemInvite(
   prisma: PrismaClient,
@@ -106,47 +156,23 @@ export async function redeemInvite(
   // Cross-person by design: the redeemer's row-level context is not the inviter's.
   return runAsSystem("me invitations: redeem", () =>
     withTransactionRetry(() =>
-      prisma.$transaction(async (tx) => {
-        const tokenHash = hashInviteToken(params.token);
-        const invite = await tx.meInvite.findUnique({ where: { tokenHash } });
-
-        if (!invite) throw new InviteError("invalid");
-        if (invite.status === "revoked") throw new InviteError("revoked");
-        if (invite.status === "redeemed") throw new InviteError("already_redeemed");
-        if (invite.expiresAt.getTime() <= Date.now()) throw new InviteError("expired");
-
-        // Quota is claimed first so a full inviter cannot consume a token, and
-        // the claim rolls back with this transaction if the one below loses.
-        // A person without a quota row cannot pass a zero bound; every token
-        // comes from an issue that created the row, so reaching here means the
-        // row is gone.
-        const quota = await tx.meInviteQuota.findUnique({ where: { userId: invite.inviterId } });
-        const counted = await tx.meInviteQuota.updateMany({
-          where: { userId: invite.inviterId, redeemedCount: { lt: quota?.allocation ?? 0 } },
-          data: { redeemedCount: { increment: 1 } },
-        });
-        if (counted.count === 0) throw new InviteError("quota_exceeded");
-
-        // The double-spend guard: the predicate is re-evaluated against the
-        // committed row, so of two racers only the first commits a claim.
-        const claimed = await tx.meInvite.updateMany({
-          where: { id: invite.id, status: "issued" },
-          data: {
-            status: "redeemed",
-            redeemedAt: new Date(),
-            redeemedByUserId: params.userId,
-          },
-        });
-        if (claimed.count === 0) throw new InviteError("already_redeemed");
-
-        const inviter = await tx.user.findUnique({
-          where: { id: invite.inviterId },
-          select: { name: true },
-        });
-        return { inviterId: invite.inviterId, inviterName: inviter?.name ?? "" };
-      }),
+      prisma.$transaction((tx) =>
+        claimInvite(tx, { tokenHash: hashInviteToken(params.token), userId: params.userId }),
+      ),
     ),
   );
+}
+
+/**
+ * The phone door's shape of the same claim: it only ever held the token's
+ * hash, and redemption must commit or roll back with the person it admits, so
+ * it runs on the caller's transaction client.
+ */
+export function redeemInviteByHash(
+  tx: Prisma.TransactionClient,
+  params: { tokenHash: string; userId: string },
+): Promise<{ inviterId: string; inviterName: string }> {
+  return claimInvite(tx, params);
 }
 
 export type InviteInspection =
