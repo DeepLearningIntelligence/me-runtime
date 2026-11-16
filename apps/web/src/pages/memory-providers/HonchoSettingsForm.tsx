@@ -1,6 +1,7 @@
 import { Trans } from "@lingui/react/macro";
 import { Button, Field, FieldError, FieldLabel, Input } from "@rakazo/ui-web";
 import { useId, useState } from "react";
+import { BRAND_NAME } from "../../me/brand.js";
 import type { ConnectionMode } from "./ConnectionModeFields";
 import { ConnectionModeFields } from "./ConnectionModeFields";
 import type { MemoryProviderConnectionDraft, MemoryProviderSettingsFormProps } from "./registry";
@@ -113,12 +114,14 @@ export function HonchoSettingsForm({ busy, onConnect }: MemoryProviderSettingsFo
             autoComplete="off"
           />
           <p id={userPeerDescriptionId} className="mt-2 text-body-sm text-muted-foreground">
-            <Trans>Recall from this peer; save to Rakazo’s own peers.</Trans>
+            <Trans>Recall from this peer; save to {BRAND_NAME}’s own peers.</Trans>
           </p>
           {!userPeerValid ? (
             <FieldError id={userPeerErrorId}>
               {userPeerFormatValid ? (
-                <Trans>rakazo-shared and IDs starting with bot- are reserved for Rakazo.</Trans>
+                <Trans>
+                  rakazo-shared and IDs starting with bot- are reserved for {BRAND_NAME}.
+                </Trans>
               ) : (
                 <Trans>Use up to 512 letters, digits, _ or -.</Trans>
               )}

@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { PublicPageShell } from "../components/pages/PublicPageShell";
 import { usePageDocument } from "../lib/pages";
+import { BRAND_NAME } from "../me/brand.js";
 
 async function readSharedPage(token: string): Promise<SharedPage | null> {
   const response = await fetch(`${SHARED_PAGE_PATH_PREFIX}${token}`, {
@@ -56,7 +57,7 @@ function SharedPageBody() {
             <Trans>The owner may have turned off its link or deleted it.</Trans>
           </p>
           <a href="/" className={`${buttonVariants({ variant: "outline", size: "sm" })} mt-1`}>
-            <Trans>Open Rakazo</Trans>
+            <Trans>Open {BRAND_NAME}</Trans>
           </a>
         </div>
       </main>

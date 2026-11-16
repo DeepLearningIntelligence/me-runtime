@@ -245,8 +245,27 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
   // Better Auth's own token key, so every stored token shares one cipher and key.
   let authContext: Promise<{ secretConfig: TokenKey }> | undefined;
   const tokenKey = async () => (await authContext!).secretConfig;
+  /**
+   * The account-created audit trail in its one shape: the `auth.sign_up`
+   * security row and the `account_created` analytics event every new account
+   * gets. Better Auth's user-create hook and doors that create the person
+   * directly (the phone sign-in, whose transaction the auth adapter cannot
+   * join) both call this, so an account created outside the adapter is logged
+   * exactly like the rest.
+   */
+  const recordUserCreated = async (
+    user: { id: string; createdAt: Date },
+    via: string | null,
+  ): Promise<void> => {
+    env.analytics?.capture(
+      user.id,
+      { name: "account_created" },
+      { id: user.id, at: user.createdAt },
+    );
+    await recordSecurityEvent({ type: "auth.sign_up", userId: user.id, metadata: { via } });
+  };
   const auth = betterAuth({
-    appName: "Rakazo",
+    appName: "me.io",
     logger: env.logger,
     secret: env.secret,
     baseURL: env.baseURL,
@@ -443,7 +462,7 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
         ? [
             passkey({
               rpID: relyingParty.rpID,
-              rpName: "Rakazo",
+              rpName: "me.io",
               origin: relyingParty.origins,
             }) as BetterAuthPlugin,
           ]
@@ -770,16 +789,7 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
       user: {
         create: {
           after: async (user, ctx) => {
-            env.analytics?.capture(
-              user.id,
-              { name: "account_created" },
-              { id: user.id, at: user.createdAt },
-            );
-            await recordSecurityEvent({
-              type: "auth.sign_up",
-              userId: user.id,
-              metadata: { via: ctx?.path ?? null },
-            });
+            await recordUserCreated(user, ctx?.path ?? null);
           },
           before: async (user) => {
             if (isMessagingEmail(user.email)) {
@@ -833,6 +843,12 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
       );
       return { token: session.token, expiresAt: session.expiresAt };
     },
+    /**
+     * Emits the account-created audit trail for a person created outside the
+     * auth adapter, such as the phone door's transaction; the user-create hook
+     * runs the same emitter.
+     */
+    recordUserCreated,
     /** Encrypts OAuth tokens stored before encryption was enabled. Safe to rerun. */
     encryptStoredOAuthTokens: async () => encryptStoredOAuthTokens(prisma, await tokenKey()),
     ssoAvailability: () => discovery?.availability(),

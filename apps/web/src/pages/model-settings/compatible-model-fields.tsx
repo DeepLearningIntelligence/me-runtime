@@ -15,6 +15,7 @@ import {
 import { ModelPreflightFeedback } from "../../components/ModelConnectionPreflightNotice";
 import { ModelHeadersEditor } from "../../components/ModelHeadersEditor";
 import { useListSearch } from "../../lib/use-list-search";
+import { BRAND_NAME } from "../../me/brand.js";
 
 import type { ModelSettingsState } from "./use-model-settings";
 
@@ -154,7 +155,7 @@ export function CompatibleModelFields({
           summary={<Trans>Setup help</Trans>}
         >
           <p className="mt-1">
-            {t`Paste the OpenAI-compatible address from your server. Rakazo adds /v1 if needed.`}
+            {t`Paste the OpenAI-compatible address from your server. ${BRAND_NAME} adds /v1 if needed.`}
           </p>
         </Disclosure>
       ) : null}

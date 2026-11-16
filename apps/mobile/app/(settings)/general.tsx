@@ -235,7 +235,7 @@ export default function General() {
               onChange={updateBotStyle}
               options={[
                 { value: "organic", label: t`Original` },
-                { value: "rakazo", label: t`Rakazo` },
+                { value: "rakazo", label: t`me.io` },
               ]}
               value={me.botAvatarSet ?? ""}
             />

@@ -59,6 +59,7 @@ import { getUiAppearancePreference, setUiAppearance } from "../lib/ui-appearance
 import type { UiLocale } from "../lib/ui-locale";
 import { UI_LOCALES } from "../lib/ui-locale";
 import { authErrorText } from "../lib/user-error";
+import { BRAND_NAME } from "../me/brand.js";
 
 export type SettingsGeneralProps = {
   email?: string | null;
@@ -304,7 +305,7 @@ export function GeneralSettingsPanels({
                     value="rakazo"
                     className="text-body-sm aria-pressed:bg-background aria-pressed:shadow-sm"
                   >
-                    <Trans>Rakazo</Trans>
+                    <Trans>{BRAND_NAME}</Trans>
                   </ToggleGroupItem>
                 </ToggleGroup>
                 {botStyleError ? (

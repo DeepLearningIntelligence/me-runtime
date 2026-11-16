@@ -47,6 +47,13 @@ export function phoneUserId(phoneHash: string): string {
  * carries no phone digits, because the number itself is never stored. The
  * invite hash is the one the pending row carried: null admits only a person
  * who already exists.
+ *
+ * A concurrent first sign-in for the same phone may create the person first.
+ * Postgres aborts a transaction whose statement errored, so the loser cannot
+ * read inside its own transaction; it retries the whole admission in a fresh
+ * one. The winner has committed by the time the unique violation surfaces, so
+ * that retry joins its row like a returning person, claims nothing, and does
+ * not emit the account-created audit trail a second time.
  */
 export async function signInVerifiedPhone(
   prisma: PrismaClient,
@@ -57,50 +64,53 @@ export async function signInVerifiedPhone(
   inviteTokenHash?: string | null,
 ): Promise<VerifiedPersonSession> {
   const userId = phoneUserId(phoneHash);
-  const found = await prisma.user.findUnique({ where: { id: userId } });
+  let found = await prisma.user.findUnique({ where: { id: userId } });
   if (!found && !inviteTokenHash) throw new PhoneSigninError("invite_required");
 
-  const user =
-    found ??
-    (await runAsSystem("phone sign-in: admit the invited person", () =>
-      prisma.$transaction(async (tx) => {
-        // False when a concurrent first sign-in created the person first: join
-        // its row and leave this link unspent, exactly like a returning person.
-        let createdHere = true;
-        const created = await tx.user
-          .create({
+  let createdHere = false;
+  while (!found) {
+    try {
+      const created = await runAsSystem("phone sign-in: admit the invited person", () =>
+        prisma.$transaction(async (tx) => {
+          const created = await tx.user.create({
             data: {
               id: userId,
               name: "Phone person",
               email: `phone-${randomBytes(16).toString("hex")}@${PHONE_EMAIL_DOMAIN}`,
             },
-          })
-          .catch(async (error: unknown) => {
-            if (!isUniqueViolation(error)) throw error;
-            createdHere = false;
-            return tx.user.findUniqueOrThrow({ where: { id: userId } });
           });
-        // One invite, one account: the redemption is in the same transaction
-        // that creates the person, so a lost claim rolls back with the person.
-        if (createdHere) {
+          // One invite, one account: the redemption is in the same transaction
+          // that creates the person, so a lost claim rolls back with the person.
           await redeemInviteByHash(tx, { tokenHash: inviteTokenHash!, userId });
-        }
 
-        // One membership is what the auth session hook requires; create it
-        // before the session so a closed signup policy cannot refuse a
-        // verified, invited phone.
-        const membership = await tx.spaceMember.findFirst({
-          where: { userId: created.id, space: { deletingAt: null } },
-          select: { id: true },
-        });
-        if (!membership) await bootstrapUserSpace(tx, created, env);
-        return created;
-      }),
-    ));
+          // One membership is what the auth session hook requires; create it
+          // before the session so a closed signup policy cannot refuse a
+          // verified, invited phone.
+          const membership = await tx.spaceMember.findFirst({
+            where: { userId: created.id, space: { deletingAt: null } },
+            select: { id: true },
+          });
+          if (!membership) await bootstrapUserSpace(tx, created, env);
+          return created;
+        }),
+      );
+      found = created;
+      createdHere = true;
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      // Another first sign-in won the insert and committed before this
+      // statement saw its row. Read the winner outside the aborted
+      // transaction; if it is somehow still absent, surface the original
+      // failure instead of guessing.
+      found = await prisma.user.findUnique({ where: { id: userId } });
+      if (!found) throw error;
+    }
+  }
+  if (createdHere) await auth.recordUserCreated(found, "phone");
 
   const headers = new Headers();
   if (request.userAgent) headers.set("user-agent", request.userAgent);
   if (request.ipAddress) headers.set(CLIENT_IP_HEADER, request.ipAddress);
-  const issued = await auth.issueSession(user.id, { headers });
-  return { userId: user.id, token: issued.token, expiresAt: issued.expiresAt };
+  const issued = await auth.issueSession(found.id, { headers });
+  return { userId: found.id, token: issued.token, expiresAt: issued.expiresAt };
 }

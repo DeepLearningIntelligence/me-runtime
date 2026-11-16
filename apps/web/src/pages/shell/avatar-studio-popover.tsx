@@ -28,6 +28,7 @@ import { Button } from "@rakazo/ui-web/components/ui/button";
 import { Check, Pencil, Upload, X } from "lucide-react";
 import type { ClipboardEvent, DragEvent } from "react";
 import { useRef, useState } from "react";
+import { BRAND_NAME } from "../../me/brand.js";
 
 /**
  * The shape grid and color row for a bot's look. With `organicIdentities`, the grid also offers
@@ -71,7 +72,7 @@ export function BotLookPicker({
               <Trans>Original</Trans>
             </TabsTrigger>
             <TabsTrigger value="rakazo" className="flex-1">
-              <Trans>Rakazo</Trans>
+              <Trans>{BRAND_NAME}</Trans>
             </TabsTrigger>
           </TabsList>
         </Tabs>

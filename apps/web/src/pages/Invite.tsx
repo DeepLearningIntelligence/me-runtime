@@ -7,6 +7,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { SharedSpaceRules } from "../components/SharedSpaceRules";
 import { rpc, selectSpace } from "../lib/rpc";
 import { errorText } from "../lib/user-error";
+import { BRAND_NAME } from "../me/brand.js";
 import { AuthFrame, submitClass } from "./Auth";
 
 // An invite names its own space, so a remembered one that is no longer available must not
@@ -101,7 +102,7 @@ export function InvitePage() {
         }}
       >
         <Button type="submit" className={submitClass}>
-          {state.kind === "invalid" ? <Trans>Open Rakazo</Trans> : <Trans>Retry</Trans>}
+          {state.kind === "invalid" ? <Trans>Open {BRAND_NAME}</Trans> : <Trans>Retry</Trans>}
         </Button>
       </AuthFrame>
     );

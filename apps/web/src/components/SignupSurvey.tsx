@@ -15,6 +15,7 @@ import {
 } from "@rakazo/ui-web";
 import { useId, useState } from "react";
 import { rpc } from "../lib/rpc";
+import { BRAND_NAME } from "../me/brand.js";
 
 type Use = NonNullable<SignupSurveyAnswers["use"]>;
 type TeamSize = NonNullable<SignupSurveyAnswers["teamSize"]>;
@@ -53,10 +54,10 @@ export function SignupSurvey({ onDone }: { onDone: () => void }) {
       }}
     >
       <h1 className="text-display font-medium text-foreground">
-        <Trans>Welcome to Rakazo</Trans>
+        <Trans>Welcome to {BRAND_NAME}</Trans>
       </h1>
       <p id={`${fieldId}-use`} className="mt-8 text-body font-medium text-foreground">
-        <Trans>How will you use Rakazo?</Trans>
+        <Trans>How will you use {BRAND_NAME}?</Trans>
       </p>
       <ToggleGroup
         aria-labelledby={`${fieldId}-use`}
@@ -112,7 +113,7 @@ export function SignupSurvey({ onDone }: { onDone: () => void }) {
         htmlFor={`${fieldId}-reason`}
         className="mt-6 block text-body font-medium text-foreground"
       >
-        <Trans>What do you most want Rakazo to help with?</Trans>
+        <Trans>What do you most want {BRAND_NAME} to help with?</Trans>
       </label>
       <Textarea
         id={`${fieldId}-reason`}

@@ -8,6 +8,7 @@ import {
   VOICE_RESPONSE_TIMEOUT_MS,
   withAbort,
 } from "@rakazo/core";
+import { BRAND_NAME } from "../me/brand.js";
 import { desktopBridge } from "./desktop.js";
 import { DesktopSpeechRecognition } from "./desktop-speech.js";
 import { getActiveUiLocale } from "./i18n.js";
@@ -350,7 +351,7 @@ export class Dictation {
         error:
           // macOS asks only once; after a refusal, only System Settings can allow it again.
           code === "not-allowed" && desktopBridge()?.speech
-            ? t`Allow Rakazo to use Speech Recognition and the microphone in System Settings.`
+            ? t`Allow ${BRAND_NAME} to use Speech Recognition and the microphone in System Settings.`
             : code
               ? t`Dictation failed: ${code}`
               : t`Dictation failed.`,

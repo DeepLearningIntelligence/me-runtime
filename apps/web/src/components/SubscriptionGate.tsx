@@ -12,6 +12,7 @@ import type { RpcClient } from "../lib/rpc";
 import { createSpaceRpc, rpc, SPACE_SELECTED_EVENT, selectedSpaceId } from "../lib/rpc";
 import type { SupportChat } from "../lib/support-chat";
 import { useSupportChat } from "../lib/support-chat";
+import { BRAND_NAME } from "../me/brand.js";
 
 const PaywallPage = lazyComponent(() =>
   import("../pages/Paywall").then((module) => module.PaywallPage),
@@ -174,7 +175,7 @@ export function SubscriptionGate({
         // Over the app rather than replacing it, so closing keeps its state.
         <Dialog open={plansOpen} onOpenChange={setPlansOpen}>
           <DialogContent
-            aria-label={t`Choose how to use Rakazo`}
+            aria-label={t`Choose how to use ${BRAND_NAME}`}
             className="inset-0 top-0 left-0 block h-dvh max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-none bg-background p-0 ring-0 sm:max-w-none"
           >
             <Suspense fallback={fallback}>

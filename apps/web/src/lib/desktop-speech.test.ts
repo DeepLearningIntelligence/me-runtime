@@ -1,7 +1,10 @@
+import { i18n } from "@lingui/core";
 import type { RakazoDesktopSpeechEvent } from "@rakazo/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopSpeechRecognition } from "./desktop-speech.js";
 import { Dictation } from "./dictation.js";
+
+i18n.activate("en");
 
 function fakeSpeech(started: () => Promise<boolean> = async () => true) {
   const listeners = new Set<(event: RakazoDesktopSpeechEvent) => void>();
@@ -148,7 +151,7 @@ describe("Dictation on the desktop app", () => {
     await dictation.listen({ mode: "hold", transcribe: false, onFinal: () => undefined });
     desktop.emit({ session: desktop.session(), type: "error", error: "not-allowed" });
     expect(dictation.state.error).toBe(
-      "Allow Rakazo to use Speech Recognition and the microphone in System Settings.",
+      "Allow me.io to use Speech Recognition and the microphone in System Settings.",
     );
   });
 });

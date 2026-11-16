@@ -1308,8 +1308,8 @@ msgid "Allow once"
 msgstr "今回のみ許可"
 
 #: apps/web/src/lib/dictation.ts
-msgid "Allow Rakazo to use Speech Recognition and the microphone in System Settings."
-msgstr "システム設定で、Rakazoに音声認識とマイクの使用を許可してください。"
+msgid "Allow me.io to use Speech Recognition and the microphone in System Settings."
+msgstr "システム設定で、me.ioに音声認識とマイクの使用を許可してください。"
 
 #: apps/mobile/lib/call-session.ts
 #: apps/mobile/lib/composer-dictation.ts
@@ -2324,8 +2324,8 @@ msgstr "フォルダを選択"
 
 #: apps/web/src/components/ModelCredits.tsx
 #: apps/web/src/components/SubscriptionGate.tsx
-msgid "Choose how to use Rakazo"
-msgstr "Rakazoの使い方を選択"
+msgid "Choose how to use me.io"
+msgstr "me.ioの使い方を選択"
 
 #: apps/mobile/components/vault-item-editor.tsx
 #: apps/mobile/components/vault-item-sheet.tsx
@@ -2760,8 +2760,8 @@ msgstr "AIを接続"
 
 #. js-lingui-explicit-id
 #: packages/i18n/src/run-error.ts
-msgid "Connect your own API key in Models or choose Rakazo credits in Billing."
-msgstr "モデルで自分のAPIキーを接続するか、請求でRakazoクレジットを選択してください。"
+msgid "Connect your own API key in Models or choose me.io credits in Billing."
+msgstr "モデルで自分のAPIキーを接続するか、請求でme.ioクレジットを選択してください。"
 
 #: apps/mobile/app/(settings)/bot-template.tsx
 #: apps/mobile/app/(settings)/integrations.tsx
@@ -4095,8 +4095,8 @@ msgid "Create space"
 msgstr "スペースを作成"
 
 #: apps/web/src/pages/Auth.tsx
-msgid "Create your Rakazo"
-msgstr "Rakazoを作成"
+msgid "Create your me.io"
+msgstr "me.ioを作成"
 
 #: apps/mobile/components/thread/message-bubble.tsx
 #: apps/web/src/components/AskCard.tsx
@@ -4828,8 +4828,8 @@ msgid "Ends {day}"
 msgstr "{day}に終了"
 
 #: apps/web/src/components/GitHubStarPrompt.tsx
-msgid "Enjoying Rakazo?"
-msgstr "Rakazoを気に入っていただけましたか？"
+msgid "Enjoying me.io?"
+msgstr "me.ioを気に入っていただけましたか？"
 
 #: apps/mobile/lib/user-error.ts
 #: apps/web/src/lib/user-error.ts
@@ -5576,7 +5576,7 @@ msgstr "チームの規模は？"
 #: apps/mobile/app/(settings)/signup-survey.tsx
 #: apps/web/src/components/SignupSurvey.tsx
 msgid "How did you hear about us?"
-msgstr "Rakazoを何で知りましたか？"
+msgstr "me.ioを何で知りましたか？"
 
 #: apps/mobile/components/routine-schedule-editor.tsx
 #: apps/web/src/pages/RoutineSchedule.tsx
@@ -5594,8 +5594,8 @@ msgstr "確認方法"
 
 #: apps/mobile/app/(settings)/signup-survey.tsx
 #: apps/web/src/components/SignupSurvey.tsx
-msgid "How will you use Rakazo?"
-msgstr "Rakazoをどのように使いますか？"
+msgid "How will you use me.io?"
+msgstr "me.ioをどのように使いますか？"
 
 #: apps/mobile/components/compatible-endpoint-form.tsx
 msgid "http://127.0.0.1:8000/v1"
@@ -7078,8 +7078,8 @@ msgid "Not imported"
 msgstr "インポートされていません"
 
 #: apps/web/src/pages/shell/import-status.ts
-msgid "Not in Rakazo's catalog"
-msgstr "Rakazoのカタログにありません"
+msgid "Not in me.io's catalog"
+msgstr "me.ioのカタログにありません"
 
 #: apps/mobile/app/(settings)/integrations.tsx
 #: apps/web/src/pages/plugins/plugin-browse.tsx
@@ -7118,12 +7118,12 @@ msgstr "未送信。タップして再試行"
 
 #: apps/web/src/pages/shell/agent-import-plan.tsx
 #: apps/web/src/pages/shell/import-status.ts
-msgid "Not supported in Rakazo"
-msgstr "Rakazoでは未対応です"
+msgid "Not supported in me.io"
+msgstr "me.ioでは未対応です"
 
 #: apps/web/src/pages/shell/agent-import-plan.tsx
-msgid "Not used by Rakazo"
-msgstr "Rakazoでは使用しません"
+msgid "Not used by me.io"
+msgstr "me.ioでは使用しません"
 
 #: apps/mobile/app/(settings)/integrations.tsx
 #: apps/web/src/components/McpServerHealthLine.tsx
@@ -7346,8 +7346,8 @@ msgstr "ナビゲーションを開く"
 #: apps/web/src/components/pages/PublicPageShell.tsx
 #: apps/web/src/pages/Invite.tsx
 #: apps/web/src/pages/SharedPage.tsx
-msgid "Open Rakazo"
-msgstr "Rakazo を開く"
+msgid "Open me.io"
+msgstr "me.io を開く"
 
 #: apps/mobile/lib/composer-dictation.ts
 #: apps/mobile/lib/thread-voice.ts
@@ -7590,8 +7590,8 @@ msgstr "新しいキーを貼り付け"
 
 #: apps/mobile/components/compatible-endpoint-form.tsx
 #: apps/web/src/pages/model-settings/compatible-model-fields.tsx
-msgid "Paste the OpenAI-compatible address from your server. Rakazo adds /v1 if needed."
-msgstr "サーバーのOpenAI互換アドレスを貼り付けてください。必要に応じてRakazoが/v1を追加します。"
+msgid "Paste the OpenAI-compatible address from your server. me.io adds /v1 if needed."
+msgstr "サーバーのOpenAI互換アドレスを貼り付けてください。必要に応じてme.ioが/v1を追加します。"
 
 #: apps/web/src/pages/shell/agent-import.tsx
 msgid "Paste the reply"
@@ -7884,17 +7884,17 @@ msgstr "引用"
 #: apps/mobile/app/bot-settings.tsx
 #: apps/web/src/pages/AccountSettingsOverlay.tsx
 #: apps/web/src/pages/shell/avatar-studio-popover.tsx
-msgid "Rakazo"
-msgstr "Rakazo"
+msgid "me.io"
+msgstr "me.io"
 
 #: apps/mobile/app/(settings)/billing.tsx
 #: apps/web/src/pages/onboarding/use-onboarding-model.ts
-msgid "Rakazo credits"
-msgstr "Rakazoクレジット"
+msgid "me.io credits"
+msgstr "me.ioクレジット"
 
 #: apps/web/src/pages/memory-providers/HonchoSettingsForm.tsx
-msgid "rakazo-shared and IDs starting with bot- are reserved for Rakazo."
-msgstr "rakazo-sharedおよびbot-で始まるIDはRakazo用に予約されています。"
+msgid "rakazo-shared and IDs starting with bot- are reserved for me.io."
+msgstr "rakazo-sharedおよびbot-で始まるIDはme.io用に予約されています。"
 
 #: apps/mobile/components/thread/message-row.tsx
 #: apps/web/src/pages/shell/message-hover-actions.tsx
@@ -7934,8 +7934,8 @@ msgid "Recall and write"
 msgstr "参照と書き込み"
 
 #: apps/web/src/pages/memory-providers/HonchoSettingsForm.tsx
-msgid "Recall from this peer; save to Rakazo’s own peers."
-msgstr "このピアから呼び出し、Rakazo専用のピアに保存します。"
+msgid "Recall from this peer; save to me.io’s own peers."
+msgstr "このピアから呼び出し、me.io専用のピアに保存します。"
 
 #: apps/web/src/pages/memory-providers/SerenitySettingsForm.tsx
 msgid "Recall only"
@@ -8527,8 +8527,8 @@ msgstr "受信トレイに戻る"
 
 #: apps/web/src/pages/McpOAuthCallback.tsx
 #: apps/web/src/pages/SlackInstallCallback.tsx
-msgid "Return to Rakazo"
-msgstr "Rakazoに戻る"
+msgid "Return to me.io"
+msgstr "me.ioに戻る"
 
 #: apps/web/src/lib/model-connection-preflight.ts
 msgid "Review provider settings and test again."
@@ -9255,8 +9255,8 @@ msgstr "<0>{0}</0> でサインインし、表示されたコードをここに�
 
 #: apps/mobile/app/sign-in.tsx
 #: apps/web/src/pages/Auth.tsx
-msgid "Sign in to Rakazo"
-msgstr "Rakazoにログイン"
+msgid "Sign in to me.io"
+msgstr "me.ioにログイン"
 
 #: apps/mobile/lib/user-error.ts
 #: apps/web/src/lib/user-error.ts
@@ -9287,8 +9287,8 @@ msgid "Sign up"
 msgstr "新規登録"
 
 #: apps/mobile/app/sign-in.tsx
-msgid "Sign up for Rakazo"
-msgstr "Rakazoに新規登録"
+msgid "Sign up for me.io"
+msgstr "me.ioに新規登録"
 
 #: apps/web/src/components/integrations/plugin-marketplace.tsx
 msgid "Sign-in cancelled. Try again."
@@ -9572,8 +9572,8 @@ msgid "Start recording"
 msgstr "録画を開始"
 
 #: apps/mobile/app/paywall.tsx
-msgid "Start using Rakazo"
-msgstr "Rakazoを使い始める"
+msgid "Start using me.io"
+msgstr "me.ioを使い始める"
 
 #: apps/mobile/app/(settings)/billing.tsx
 #: apps/web/src/components/ModelCredits.tsx
@@ -9885,8 +9885,8 @@ msgid "That doesn’t look like a URL"
 msgstr "URLではないようです"
 
 #: apps/mobile/lib/endpoint.ts
-msgid "That URL did not look like a Rakazo server"
-msgstr "そのURLはRakazoサーバーではないようです"
+msgid "That URL did not look like a me.io server"
+msgstr "そのURLはme.ioサーバーではないようです"
 
 #: apps/mobile/lib/endpoint.ts
 msgid "That URL is missing a host"
@@ -10288,8 +10288,8 @@ msgstr "このサーバーのツール結果はモデルに収まりません。
 
 #: apps/mobile/app/(settings)/model-connection.tsx
 #: apps/web/src/pages/model-settings/connection-controls.tsx
-msgid "This subscription sign-in is not available in Rakazo yet. Use a deployment credential or choose another provider."
-msgstr "このサブスクリプションでのログインはRakazoではまだ利用できません。デプロイメントの認証情報を使用するか、別のプロバイダーを選択してください。"
+msgid "This subscription sign-in is not available in me.io yet. Use a deployment credential or choose another provider."
+msgstr "このサブスクリプションでのログインはme.ioではまだ利用できません。デプロイメントの認証情報を使用するか、別のプロバイダーを選択してください。"
 
 #: apps/mobile/app/(settings)/bot-template.tsx
 #: apps/web/src/components/bot-templates/bot-templates-dialog.tsx
@@ -10810,8 +10810,8 @@ msgstr "パスワードには保護された入力を使用してください。
 
 #: apps/mobile/app/(settings)/billing.tsx
 #: apps/web/src/components/ModelCredits.tsx
-msgid "Use Rakazo credits"
-msgstr "Rakazoクレジットを使用"
+msgid "Use me.io credits"
+msgstr "me.ioクレジットを使用"
 
 #: apps/mobile/components/space-bots-model.tsx
 msgid "Use space default"
@@ -11031,8 +11031,8 @@ msgstr "毎週"
 
 #: apps/mobile/app/(settings)/_layout.tsx
 #: apps/web/src/components/SignupSurvey.tsx
-msgid "Welcome to Rakazo"
-msgstr "Rakazoへようこそ"
+msgid "Welcome to me.io"
+msgstr "me.ioへようこそ"
 
 #: apps/web/src/pages/shell/dialogs.tsx
 msgid "What about its memories?"
@@ -11044,8 +11044,8 @@ msgstr "このスペースで何を使えますか？"
 
 #: apps/mobile/app/(settings)/signup-survey.tsx
 #: apps/web/src/components/SignupSurvey.tsx
-msgid "What do you most want Rakazo to help with?"
-msgstr "Rakazoに最も手伝ってほしいことは何ですか？"
+msgid "What do you most want me.io to help with?"
+msgstr "me.ioに最も手伝ってほしいことは何ですか？"
 
 #: apps/web/src/pages/shell/message-cards.tsx
 msgid "What do you want me on first?"

@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { isBuildId } from "@rakazo/contracts/client-build";
 import { webDarkTokens } from "@rakazo/ui-tokens";
 import type { Plugin, Rolldown } from "vite";
+import { BRAND_NAME } from "../me/brand.js";
 import { CACHE_PREFIX } from "./service-worker.js";
 
 const SERVICE_WORKER_FILE = "sw.js";
@@ -17,8 +18,8 @@ export function webManifest() {
   }));
   return {
     id: "/",
-    name: "Rakazo",
-    short_name: "Rakazo",
+    name: BRAND_NAME,
+    short_name: BRAND_NAME,
     description: "Your team of always-on agents.",
     start_url: "/",
     scope: "/",

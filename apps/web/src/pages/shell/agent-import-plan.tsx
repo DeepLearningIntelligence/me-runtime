@@ -17,6 +17,7 @@ import {
 } from "@rakazo/ui-web/components/ui/collapsible";
 import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
+import { BRAND_NAME } from "../../me/brand.js";
 import { ComputerModePicker } from "./bot-settings-sections";
 import { useImportStatusText } from "./import-status";
 import type { AgentImportSource } from "./use-agent-import-source";
@@ -127,10 +128,10 @@ export function AgentImportPlanReview({
   };
   const skipReason = (reason: AgentImportSkipReason) =>
     ({
-      runtime: t`Not used by Rakazo`,
+      runtime: t`Not used by ${BRAND_NAME}`,
       invalid_skill: t`Not a valid skill`,
       builtin: t`Built-in`,
-      unsupported: t`Not supported in Rakazo`,
+      unsupported: t`Not supported in ${BRAND_NAME}`,
       connected: t`Already connected`,
       invalid_file: t`Could not read these files`,
       default: defaultNote,

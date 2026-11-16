@@ -18,6 +18,7 @@ import { clearSpaceSelection } from "../lib/rpc";
 import { newAccountDestination, signInNext } from "../lib/sign-in-next";
 import { runSsoFlow } from "../lib/sso-flow";
 import { authErrorText, credentialIssueText } from "../lib/user-error";
+import { BRAND_NAME } from "../me/brand.js";
 import { WindowChrome } from "./WindowChrome";
 
 type AuthMode = "in" | "up" | "forgot";
@@ -63,9 +64,9 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
     sent || codeStep ? (
       <Trans>Check your email</Trans>
     ) : mode === "in" ? (
-      <Trans>Sign in to Rakazo</Trans>
+      <Trans>Sign in to {BRAND_NAME}</Trans>
     ) : mode === "up" ? (
-      <Trans>Create your Rakazo</Trans>
+      <Trans>Create your {BRAND_NAME}</Trans>
     ) : (
       <Trans>Reset your password</Trans>
     );

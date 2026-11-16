@@ -27,6 +27,7 @@ import type { ModelCatalogEntry } from "../../lib/model-auth";
 import { rpc } from "../../lib/rpc";
 import { useModelOAuthSignIn } from "../../lib/use-model-oauth-signin";
 import { errorText } from "../../lib/user-error";
+import { BRAND_NAME } from "../../me/brand.js";
 import { useModelConnectionForm } from "../model-settings/use-model-connection-form";
 
 /** Rakazo credits sit among the providers as the one choice that needs no account of its own. */
@@ -156,7 +157,7 @@ export function useOnboardingModel({
       return providerDisplayName(id, byId.get(id)?.providerName ?? id, auth);
     };
     const main = [
-      ...(billingEnabled ? [{ value: CREDITS_OPTION, label: t`Rakazo credits` }] : []),
+      ...(billingEnabled ? [{ value: CREDITS_OPTION, label: t`${BRAND_NAME} credits` }] : []),
       ...MAIN_PROVIDER_OPTIONS.filter((option) => byId.has(option.provider)).map((option) => ({
         value: providerOptionValue(option.provider, option.auth),
         label: optionLabel(option.provider, option.auth),

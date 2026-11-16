@@ -596,6 +596,11 @@ export function modelsRoutes(ctx: RouterContext) {
         return { ok: true as const };
       }),
       rename: authed.models.rename.handler(async ({ context, input }) => {
+        // A label-only rename is still a write to a user model connection, so
+        // the model policy guards it like every other path here; a label
+        // cannot select a provider, but the policy's one sentence stays true
+        // without an exemption.
+        assertModelConnectionWriteAllowed(deps.env.modelPolicy);
         const renamed = await deps.prisma.userModelCredential.updateMany({
           where: { id: input.credentialId, userId: context.actor.userId },
           data: { label: input.label },
