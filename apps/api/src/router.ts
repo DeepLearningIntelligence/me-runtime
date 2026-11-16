@@ -36,6 +36,7 @@ import type { Auth } from "@rakazo/auth";
 import type { NavLink } from "@rakazo/contracts";
 import type { BoardEvents, PrismaClient, ThreadEvents } from "@rakazo/db";
 import type { BillingService } from "./billing.js";
+import type { ModelPolicy } from "./me/model-policy.js";
 import { accountRoutes } from "./routes/account.js";
 import { availabilityRoutes } from "./routes/availability.js";
 import { boardsRoutes } from "./routes/boards.js";
@@ -46,6 +47,7 @@ import { computerProviderRoutes } from "./routes/computer-provider.js";
 import { connectionsRoutes } from "./routes/connections.js";
 import { contentRoutes } from "./routes/content.js";
 import { createRouterContext } from "./routes/context.js";
+import { invitesRoutes } from "./routes/invites.js";
 import { mcpRoutes } from "./routes/mcp.js";
 import { memoryRoutes } from "./routes/memory.js";
 import { messagingRoutes } from "./routes/messaging.js";
@@ -138,6 +140,8 @@ export interface RouterDeps {
     maxUploadSizeBytes?: number;
     maxAttachmentsPerMessage?: number;
     agentRuntime: string;
+    /** ME_MODEL_POLICY; house_only refuses user model connections on every write path. */
+    modelPolicy: ModelPolicy;
     teamChatJudgeProvider?: string;
     teamChatJudgeModel?: string;
     defaultProvider: string;
@@ -148,6 +152,9 @@ export interface RouterDeps {
     privacyPolicyUrl?: string;
     screenProxySecret: string;
     sandboxProvider: string;
+    /** Person-to-person invites (ME-RUN-001 D-RUN-7). */
+    inviteAllocation: number;
+    inviteTtlDays: number;
     gitSha?: string;
     integrationsCatalogUrl?: string;
     mcpAllowPrivateEndpoint?: boolean;
@@ -177,6 +184,7 @@ export function createRouter(deps: RouterDeps) {
     ...capabilitiesRoutes(ctx),
     ...mcpRoutes(ctx),
     ...onboardingRoutes(ctx),
+    ...invitesRoutes(ctx),
     ...availabilityRoutes(ctx),
     ...connectionsRoutes(ctx),
     ...messagingRoutes(ctx),

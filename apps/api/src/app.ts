@@ -151,6 +151,7 @@ import { trackInFlightRequests } from "./in-flight-requests.js";
 import { mountLocalComputerHost } from "./local-settings.js";
 import { marketingEmailRoutes, sendWelcomeEmail } from "./marketing-email.js";
 import { moveMcpArgsIntoSecrets } from "./mcp-args-migration.js";
+import { mountPhoneSigninRoutes } from "./me/phone-signin/routes.js";
 import { startMessagingRuntime } from "./messaging-runtime.js";
 import { monitoringRoutes } from "./monitoring.js";
 import { pluginSubmissionRoutes } from "./plugin-submissions.js";
@@ -439,7 +440,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
         analytics,
       })
     : undefined;
-  const modelCreditsEnabled = billing?.modelCreditsEnabled ?? false;
+  const modelCreditsEnabled = billing?.modelCreditsEnabled ?? env.houseModelCredits;
   await prisma.deploymentSettings.upsert({
     where: { id: "default" },
     create: {
@@ -771,6 +772,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       maxUploadSizeBytes: env.maxUploadSizeBytes,
       maxAttachmentsPerMessage: env.maxAttachmentsPerMessage,
       agentRuntime: env.agentRuntime,
+      modelPolicy: env.modelPolicy,
       defaultProvider: env.defaultProvider,
       defaultModel: env.defaultModel,
       teamChatJudgeProvider: env.teamChatJudgeProvider,
@@ -781,6 +783,8 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       privacyPolicyUrl: env.privacyPolicyUrl,
       screenProxySecret: env.screenProxySecret,
       sandboxProvider: env.sandboxProvider,
+      inviteAllocation: env.inviteAllocation,
+      inviteTtlDays: env.inviteTtlDays,
       gitSha: env.gitSha,
       integrationsCatalogUrl: env.integrationsCatalogUrl,
       mcpAllowPrivateEndpoint: env.mcpAllowPrivateEndpoint,
@@ -881,6 +885,9 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   ] as const) {
     app.use(path, (_c, next) => runAsSystem(reason, next));
   }
+  // The phone door answers before the auth library sees the request; it runs in
+  // the system context above, like every other authentication path.
+  mountPhoneSigninRoutes(app, { prisma, auth, env, clientIp: requestClientIp });
   if (directory) {
     app.on(["GET", "POST", "PUT", "PATCH", "DELETE"], "/api/auth/scim/v2/*", async (c) => {
       const changes: DirectoryAccountChange[] = [];

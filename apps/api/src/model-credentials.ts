@@ -35,6 +35,7 @@ import {
   writeModelRole,
 } from "@rakazo/db";
 import { mayUsePrivateEndpoint } from "./mcp-servers.js";
+import { assertModelConnectionWriteAllowed } from "./me/model-policy.js";
 import { assertNoDanglingModelPins } from "./model-pins.js";
 import type { RouterDeps } from "./router.js";
 
@@ -117,6 +118,8 @@ export async function prepareModelCredential(
   input: ModelCredentialInput,
   codexCatalog: CodexLiveCatalog,
 ) {
+  // Refuses before any key is verified or stored.
+  assertModelConnectionWriteAllowed(deps.env.modelPolicy);
   throwIfAborted(input.signal);
   const parsedSecret = parseModelSecret(input.plaintext);
   const requestedModelId = usableModelId(input.modelId);
@@ -172,21 +175,27 @@ export async function createImportedModelCredential(
   actor: Actor,
   input: ModelCredentialInput,
   prepared: Awaited<ReturnType<typeof prepareModelCredential>>,
+  modelPolicy: string | undefined,
 ) {
   const existing = await tx.userModelCredential.findFirst({
     where: { userId: actor.userId, provider: { in: storedPiProviderIds(input.provider) } },
     select: { id: true },
   });
   if (existing) return null;
-  return writeModelCredential(tx, actor, input, prepared);
+  return writeModelCredential(tx, actor, input, prepared, modelPolicy);
 }
 
-async function writeModelCredential(
+/** The lowest-level connection writer: every create or update passes here. */
+export async function writeModelCredential(
   tx: Prisma.TransactionClient,
   actor: Actor,
   input: ModelCredentialInput,
   prepared: Awaited<ReturnType<typeof prepareModelCredential>>,
+  modelPolicy: string | undefined,
 ) {
+  // The lowest-level writer: every create or update of a connection row passes here, so
+  // the policy holds even for a caller that skipped the higher paths.
+  assertModelConnectionWriteAllowed(modelPolicy);
   const { stored, defaultModel, allowedThinking } = prepared;
   throwIfAborted(input.signal);
   const existing = input.credentialId
@@ -289,12 +298,17 @@ export async function persistModelCredential(
   input: ModelCredentialInput,
   codexCatalog: CodexLiveCatalog,
 ) {
+  // Refuses before the key is verified, stored, or written.
+  assertModelConnectionWriteAllowed(deps.env.modelPolicy);
   const prepared = await prepareModelCredential(deps, actor, input, codexCatalog);
   throwIfAborted(input.signal);
   const cred = await withTransactionRetry(() =>
-    deps.prisma.$transaction((tx) => writeModelCredential(tx, actor, input, prepared), {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    }),
+    deps.prisma.$transaction(
+      (tx) => writeModelCredential(tx, actor, input, prepared, deps.env.modelPolicy),
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    ),
   );
   (deps.providerCatalog ?? providerCatalogCache).invalidate(canonicalPiProviderId(input.provider));
   return modelCredentialDto(cred, input.plaintext);
@@ -310,6 +324,8 @@ export function createModelConnector(deps: RouterDeps, codexCatalog: CodexLiveCa
     input: ModelConnectInput,
     signal: AbortSignal | undefined,
   ) => {
+    // Refuses before any key verification call reaches a provider.
+    assertModelConnectionWriteAllowed(deps.env.modelPolicy);
     const credential = await modelConnectionTarget(deps, actor, input.provider, input.credentialId);
     let plaintext: string;
     try {

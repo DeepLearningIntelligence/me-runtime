@@ -85,6 +85,8 @@ export async function meDto(deps: RouterDeps, actor: Actor): Promise<Me> {
     timezone: user.timezone ?? null,
     locale: user.locale ?? null,
     billingEnabled: Boolean(deps.billing),
+    // The deployment refuses user model connections; the UI hides every way to add one.
+    houseModelsOnly: deps.env.modelPolicy === "house_only",
     // Only billing deployments ask; self-hosted installs never see the survey.
     needsSignupSurvey: Boolean(deps.billing) && !user.signupSurvey,
     paymentWalletProvider: deps.paymentWallet

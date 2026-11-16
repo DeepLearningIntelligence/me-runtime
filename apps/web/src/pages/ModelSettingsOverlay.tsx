@@ -351,6 +351,7 @@ export function ModelSettingsOverlay({
               defaultLabel={t`Choose a model`}
               providers={providers}
               providerLabel={providerLabel}
+              houseModelsOnly={me.houseModelsOnly === true}
               onConnect={(next, intent) => openConnection(next, intent, null, "approval")}
               onManage={(id, credentialId) =>
                 openConnection({ id, name: id }, null, credentialId, "approval")
@@ -371,6 +372,7 @@ export function ModelSettingsOverlay({
               }
               providers={providers}
               providerLabel={providerLabel}
+              houseModelsOnly={me.houseModelsOnly === true}
               onConnect={(next, intent) => openConnection(next, intent, null, "computer")}
               onManage={(id, credentialId) =>
                 openConnection({ id, name: id }, null, credentialId, "computer")
@@ -384,6 +386,7 @@ export function ModelSettingsOverlay({
               providers={allProviders}
               name={connectionName}
               disabled={busy}
+              houseModelsOnly={me.houseModelsOnly === true}
               onAdd={(next) => openConnection(next, null, null, "providers:add")}
               onOpen={(entry) =>
                 connectionAt === `providers:${entry.id}`

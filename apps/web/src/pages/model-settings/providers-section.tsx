@@ -29,6 +29,7 @@ export function ProvidersSection({
   providers,
   name: nameOf,
   disabled,
+  houseModelsOnly,
   onAdd,
   onOpen,
   panel,
@@ -40,6 +41,8 @@ export function ProvidersSection({
   /** A connection's name, such as "OpenAI" or "OpenAI (Work)". */
   name: (credential: ModelCredential) => string;
   disabled?: boolean;
+  /** The deployment refuses new connections (house models only): nothing to add. */
+  houseModelsOnly?: boolean;
   onAdd: (provider: ConnectableProvider) => void;
   onOpen: (credential: ModelCredential) => void;
   /** The connection form, shown under the connection it belongs to or after the list. */
@@ -47,6 +50,8 @@ export function ProvidersSection({
   /** The connection id the form belongs to, or "add" for a new one. */
   panelAt?: string | null;
 }) {
+  // House models only: without connections of its own the section has nothing to show.
+  if (houseModelsOnly && credentials.length === 0) return null;
   return (
     <section className="mb-8" data-testid="model-providers">
       <SectionHeading className="mb-2.5">
@@ -80,9 +85,11 @@ export function ProvidersSection({
               {panelAt === credential.id ? <div className="px-3 pb-3">{panel}</div> : null}
             </li>
           ))}
-        <li>
-          <AddProvider providers={providers} disabled={disabled} onPick={onAdd} />
-        </li>
+        {!houseModelsOnly ? (
+          <li>
+            <AddProvider providers={providers} disabled={disabled} onPick={onAdd} />
+          </li>
+        ) : null}
       </ul>
       {panelAt === "add" ? panel : null}
     </section>

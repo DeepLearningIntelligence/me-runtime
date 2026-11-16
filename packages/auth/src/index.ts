@@ -1,3 +1,4 @@
+import { runWithEndpointContext } from "@better-auth/core/context";
 import { expo } from "@better-auth/expo";
 import { passkey } from "@better-auth/passkey";
 import type { ProductAnalytics, TransactionalEmailProvider } from "@rakazo/adapter-kit";
@@ -811,6 +812,27 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
   authContext = auth.$context;
   return Object.assign(auth, {
     emailCodeSignIn,
+    /**
+     * Issues a session for a user the fork authenticated by another proof, such
+     * as the phone door. It runs the same session hooks as every sign-in,
+     * including workspace admission, inside an endpoint context that carries the
+     * request's own headers so the session records its address and agent.
+     */
+    issueSession: async (
+      userId: string,
+      input: { headers?: Headers } = {},
+    ): Promise<{ token: string; expiresAt: Date }> => {
+      const context = await auth.$context;
+      // Better Auth's endpoint-context type is invariant in its options type;
+      // this object is the runtime shape the hooks read.
+      const endpoint = { context, headers: input.headers } as unknown as Parameters<
+        typeof runWithEndpointContext
+      >[0];
+      const session = await runWithEndpointContext(endpoint, () =>
+        context.internalAdapter.createSession(userId, false),
+      );
+      return { token: session.token, expiresAt: session.expiresAt };
+    },
     /** Encrypts OAuth tokens stored before encryption was enabled. Safe to rerun. */
     encryptStoredOAuthTokens: async () => encryptStoredOAuthTokens(prisma, await tokenKey()),
     ssoAvailability: () => discovery?.availability(),

@@ -107,7 +107,13 @@ export function createAgentImportServices({
       };
     },
     writeModelKey: async (tx, actor, key) => {
-      const row = await createImportedModelCredential(tx, actor, key.credential, key.prepared);
+      const row = await createImportedModelCredential(
+        tx,
+        actor,
+        key.credential,
+        key.prepared,
+        deps.env.modelPolicy,
+      );
       return row && { id: row.id, secretId: row.secretId, provider: row.provider };
     },
     afterModelKey: (provider) =>

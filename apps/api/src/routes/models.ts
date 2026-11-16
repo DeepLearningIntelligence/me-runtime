@@ -46,6 +46,7 @@ import {
 import { getLogger } from "@rakazo/logging";
 import { markExpectedFailure } from "@rakazo/logging/hono";
 import { mayUsePrivateEndpoint } from "../mcp-servers.js";
+import { assertModelConnectionWriteAllowed } from "../me/model-policy.js";
 import { firstModelConnectAnalytics } from "../model-connect-analytics.js";
 import {
   modelConnectionTarget,
@@ -299,6 +300,9 @@ export function modelsRoutes(ctx: RouterContext) {
         }
       }),
       beginOAuth: authed.models.beginOAuth.handler(async ({ context, input }) => {
+        // Refuses the connect attempt before any sign-in is created; its finish path
+        // refuses again through persistModelCredential.
+        assertModelConnectionWriteAllowed(deps.env.modelPolicy);
         // An older app's sign-in renews the provider's newest connection, bound now so a
         // disconnect of that connection retires it and it never lands on another one.
         const target = await modelConnectionTarget(

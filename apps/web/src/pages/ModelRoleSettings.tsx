@@ -59,6 +59,8 @@ type Props = {
   providers: ConnectableProvider[];
   /** Connection-aware names, such as "Claude subscription" or a compatible server's host. */
   providerLabel: (provider: string) => string;
+  /** The deployment refuses new connections (house models only): pickers offer none. */
+  houseModelsOnly?: boolean;
   onConnect: (provider: ConnectableProvider, intent: ModelRoleConnectIntent) => void;
   /** Opens one connection's dialog. */
   onManage: (provider: string, credentialId: string) => void;
@@ -110,6 +112,7 @@ export function ModelRoleSettings({
   defaultLabel,
   providers,
   providerLabel,
+  houseModelsOnly,
   onConnect,
   onManage,
   thinking,
@@ -312,6 +315,7 @@ export function ModelRoleSettings({
               options={options}
               providers={providers}
               disabled={pickerLocked}
+              houseModelsOnly={houseModelsOnly}
               onPick={(option) => (option ? void setPrimary(choiceOf(option)) : null)}
               onConnect={connectFor("primary")}
               reopen={reopenFor("primary")}
@@ -382,6 +386,7 @@ export function ModelRoleSettings({
                 }
                 providers={providers}
                 disabled={pickerLocked}
+                houseModelsOnly={houseModelsOnly}
                 onPick={(option) =>
                   option
                     ? void (isPrimary
@@ -494,6 +499,7 @@ export function ModelRoleSettings({
               )}
               providers={providers}
               disabled={pickerLocked}
+              houseModelsOnly={houseModelsOnly}
               onPick={(option) => (option ? void place("add", choiceOf(option)) : null)}
               onConnect={connectFor("add")}
               reopen={reopenFor("add")}

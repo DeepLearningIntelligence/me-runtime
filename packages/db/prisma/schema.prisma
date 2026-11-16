@@ -63,6 +63,9 @@ model User {
   members                     Member[]
   accessGrants                AccessGrant[]
   invitations                 Invitation[]
+  meInvites                   MeInvite[]                   @relation("MeInviter")
+  meInvitesRedeemedBy         MeInvite[]                   @relation("MeInviteRedeemedBy")
+  meInviteQuota               MeInviteQuota?
   modelCredentials            UserModelCredential[]
   voiceCredentials            UserVoiceCredential[]
   paymentWallet               PaymentWallet?
@@ -101,6 +104,43 @@ model User {
   @@map("user")
   messagingInstallations MessagingInstallation[]
   messagingInstallSessions MessagingInstallSession[]
+}
+
+/// Person-to-person invitations: the only door into the product for new people.
+/// Only the token's SHA-256 is stored, so a database copy cannot mint a link.
+/// The quota row is the one count of a person's links; the guard reads it here
+/// rather than trusting any client-supplied number.
+model MeInviteQuota {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// How many links the person may issue; taken from the deployment default when
+  /// their row is first created and not re-read from config afterwards.
+  allocation    Int
+  /// Links minted, and links that joined, both bounded by allocation.
+  grantedCount  Int   @default(0)
+  redeemedCount Int   @default(0)
+
+  @@map("me_invite_quotas")
+}
+
+/// One link a person shares. "issued" until claimed or withdrawn; "redeemed"
+/// and "revoked" are final. Redeem is a compare-and-swap on status, so two
+/// concurrent opens of the same link produce one account.
+model MeInvite {
+  id               String    @id @default(cuid())
+  inviterId        String
+  inviter          User      @relation("MeInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  tokenHash        String    @unique
+  status           String    @default("issued")
+  expiresAt        DateTime
+  createdAt        DateTime  @default(now())
+  redeemedAt       DateTime?
+  redeemedByUserId String?
+  redeemedBy       User?     @relation("MeInviteRedeemedBy", fields: [redeemedByUserId], references: [id], onDelete: SetNull)
+  revokedAt        DateTime?
+
+  @@index([inviterId, createdAt])
+  @@map("me_invitations")
 }
 
 /// A row with no answers means the user skipped the survey.
@@ -2750,4 +2790,41 @@ model CapabilityInstallSpace {
   @@id([installId, spaceId])
   @@index([spaceId, userId])
   @@map("capability_install_spaces")
+}
+
+/// One open phone sign-in door. The nonce and the code are stored only as hashes.
+model MePhoneSignin {
+  id        String   @id @default(cuid())
+  /// SHA-256 of the `ME-<nonce>` text the browser holds and sends from WhatsApp.
+  nonceHash String   @unique
+  /// HMAC of the sender's E.164 number, set when the WhatsApp message binds the nonce.
+  phoneHash String?
+  /// SHA-256 of the six-digit code; null until a message binds the phone.
+  codeHash  String?
+  /// When the nonce was bound to a phone; a bound row never binds again.
+  boundAt   DateTime?
+  /// Set when the code verifies, so a code is redeemed once.
+  consumedAt DateTime?
+  /// The door closes ten minutes after it opened; the row refuses by name after that.
+  expiresAt DateTime
+  /// Wrong guesses are charged to this row; the sixth attempt is refused.
+  attempts  Int      @default(0)
+  /// The address that opened the door, so one address cannot mint rows without bound.
+  ipAddress String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ipAddress, createdAt])
+  @@map("me_phone_signins")
+}
+
+/// One claimed inbound WhatsApp message, so a replayed delivery mints no second code.
+model MePhoneSigninMessage {
+  id                String   @id @default(cuid())
+  provider          String
+  providerMessageId String
+  claimedAt         DateTime @default(now())
+
+  @@unique([provider, providerMessageId])
+  @@map("me_phone_signin_messages")
 }

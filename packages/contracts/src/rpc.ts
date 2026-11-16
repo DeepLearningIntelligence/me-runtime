@@ -163,6 +163,7 @@ import {
   IntegrationProviderConfigSchema,
   IntegrationSetupStateSchema,
 } from "./integration-settings.js";
+import { InviteInspectionSchema, InviteIssuedSchema, InviteListSchema } from "./invites.js";
 import {
   BotMcpServerSchema,
   McpServerConfigInput,
@@ -1236,6 +1237,18 @@ export const appContract = {
         }),
       )
       .output(z.object({ ok: z.literal(true) })),
+  },
+  invites: {
+    /** Mints one link; the person's quota row refuses the eleventh by name. */
+    issue: oc.output(InviteIssuedSchema),
+    /** The meter and the links this person has minted. */
+    list: oc.output(InviteListSchema),
+    /** Withdraws an unused link; a used or spent one cannot be un-spent. */
+    revoke: oc.input(z.object({ id: Id })).output(z.object({ ok: z.literal(true) })),
+    /** Public, for the welcome page: who invited them, or the named refusal. */
+    inspect: oc
+      .input(z.object({ token: z.string().min(1).max(128) }))
+      .output(InviteInspectionSchema),
   },
   integrationSetup: {
     get: oc.output(IntegrationSetupStateSchema),

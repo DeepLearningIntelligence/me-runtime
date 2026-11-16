@@ -19,6 +19,8 @@ import { getLogger } from "@rakazo/logging";
 import type { Hono } from "hono";
 import { storeInboundAttachment } from "./artifacts.js";
 import type { AppEnv } from "./env.js";
+import { whatsAppSignInHandler } from "./me/phone-signin/index.js";
+import { createWhatsAppRouter } from "./me/whatsapp-router.js";
 import { createMessagingInboundHandler } from "./messaging-inbound.js";
 import { createMessagingReceipts } from "./messaging-receipts.js";
 import { mountMessagingWebhookRoutes } from "./messaging-webhook.js";
@@ -309,7 +311,19 @@ export async function startMessagingRuntime({
     await inbound(event);
   };
   messaging.onInbound((event) => runAsSystem("messaging inbound", () => handleInbound(event)));
-  mountMessagingWebhookRoutes(app, { messaging });
+  mountMessagingWebhookRoutes(app, {
+    messaging,
+    whatsapp: createWhatsAppRouter({
+      config: {
+        whatsappAppSecret: env.whatsappAppSecret,
+        whatsappBusinessNumber: env.whatsappBusinessNumber,
+      },
+      signIn: whatsAppSignInHandler(prisma, {
+        identityHashKey: env.meIdentityHashKey,
+      }),
+      messaging,
+    }),
+  });
   // Start polling adapters now rather than on the first webhook or send; a second poller
   // elsewhere would fight this one for Telegram's single getUpdates slot. Bounded retries
   // cover transient startup failures, otherwise polling-only bots stay dark.

@@ -30,6 +30,8 @@ import {
   uploadSizeFromEnv,
 } from "@rakazo/core";
 import { getLogger, monitoringPseudonymSecret } from "@rakazo/logging";
+import type { ModelPolicy } from "./me/model-policy.js";
+import { parseModelPolicy } from "./me/model-policy.js";
 
 export { resolveCloudAgentProvider, resolveSandboxProvider } from "@rakazo/adapters";
 
@@ -64,6 +66,14 @@ export interface AppEnv {
   clientIpHeader: string;
   signupsEnabled: string | undefined;
   signupAllowlist: string | undefined;
+  /** ME_MODEL_POLICY=house_only refuses user model connections on every write path. */
+  modelPolicy: ModelPolicy;
+  /** ME_HOUSE_CREDITS=true turns hosted model credits on without a billing provider. */
+  houseModelCredits: boolean;
+  /** Person-to-person invites: how many links a person may issue (ME_INVITE_ALLOCATION). */
+  inviteAllocation: number;
+  /** How many days a link lasts (ME_INVITE_TTL_DAYS). */
+  inviteTtlDays: number;
   encryptionKey: string;
   contentEncryption: boolean;
   dataDir: string;
@@ -147,6 +157,10 @@ export interface AppEnv {
   whatsappPhoneNumberId: string | undefined;
   whatsappAppSecret: string | undefined;
   whatsappVerifyToken: string | undefined;
+  /** HKDF source for the one phone-identity HMAC (ME_IDENTITY_HASH_KEY); the phone door refuses without it. */
+  meIdentityHashKey: string | undefined;
+  /** The business line people text; also the number wa.me deep links point at. */
+  whatsappBusinessNumber: string | undefined;
   telegramBotToken: string | undefined;
   telegramWebhookSecret: string | undefined;
   /** Extra named Telegram bots (TELEGRAM_BOT_TOKEN_<NAME>), e.g. one per space. */
@@ -266,6 +280,9 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     clientIpHeader: optional(source.CLIENT_IP_HEADER)?.toLowerCase() ?? "x-forwarded-for",
     signupsEnabled: source.SIGNUPS_ENABLED,
     signupAllowlist: source.SIGNUP_ALLOWLIST,
+    modelPolicy: parseModelPolicy(source.ME_MODEL_POLICY),
+    houseModelCredits: source.ME_HOUSE_CREDITS === "true",
+    ...inviteSettings(source),
     encryptionKey: resolveEncryptionKey(source),
     contentEncryption: resolveContentEncryption(source),
     dataDir: source.DATA_DIR ?? "./data",
@@ -337,6 +354,8 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     whatsappPhoneNumberId: optional(source.WHATSAPP_PHONE_NUMBER_ID),
     whatsappAppSecret: optional(source.WHATSAPP_APP_SECRET),
     whatsappVerifyToken: optional(source.WHATSAPP_VERIFY_TOKEN),
+    meIdentityHashKey: optional(source.ME_IDENTITY_HASH_KEY),
+    whatsappBusinessNumber: optional(source.WHATSAPP_BUSINESS_NUMBER),
     telegramBotToken: optional(source.TELEGRAM_BOT_TOKEN),
     telegramWebhookSecret: optional(source.TELEGRAM_WEBHOOK_SECRET_TOKEN),
     telegramBots: telegramBotsFromEnv(source),
@@ -416,6 +435,28 @@ function required(source: NodeJS.ProcessEnv, key: string): string {
   const value = source[key];
   if (!value) throw new Error(`Missing ${key}`);
   return value;
+}
+
+/**
+ * ME_INVITE_ALLOCATION and ME_INVITE_TTL_DAYS: how many links a person may mint and how
+ * long one lasts. Unset keeps the defaults, 10 and 14; a set value must be a positive
+ * whole number.
+ */
+function inviteSettings(
+  source: NodeJS.ProcessEnv,
+): Pick<AppEnv, "inviteAllocation" | "inviteTtlDays"> {
+  const read = (key: string, fallback: number): number => {
+    const raw = source[key]?.trim();
+    if (!raw) return fallback;
+    if (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw)) || Number(raw) === 0) {
+      throw new Error(`${key} must be a positive whole number`);
+    }
+    return Number(raw);
+  };
+  return {
+    inviteAllocation: read("ME_INVITE_ALLOCATION", 10),
+    inviteTtlDays: read("ME_INVITE_TTL_DAYS", 14),
+  };
 }
 
 function browserMonitoringFromEnv(source: NodeJS.ProcessEnv): AppEnv["browserMonitoring"] {

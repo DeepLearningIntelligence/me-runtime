@@ -4,6 +4,7 @@ import { emailLocale, welcomeEmail } from "@rakazo/auth";
 import type { PrismaClient } from "@rakazo/db";
 import { runAsSystem } from "@rakazo/db";
 import { Hono } from "hono";
+import { PHONE_EMAIL_DOMAIN } from "./me/phone-signin/session.js";
 
 export const UNSUBSCRIBE_PATH = "/api/v1/email/unsubscribe";
 
@@ -45,6 +46,9 @@ export async function sendWelcomeEmail(
       select: { email: true, name: true, locale: true },
     });
     if (!user) return;
+    // A phone person has no mailbox until onboarding connects one; a synthetic
+    // address must not become a welcome delivery that can only bounce.
+    if (user.email.endsWith(`@${PHONE_EMAIL_DOMAIN}`)) return;
     const claim = await deps.prisma.emailSend.createMany({
       data: { userId, kind: "welcome" },
       skipDuplicates: true,

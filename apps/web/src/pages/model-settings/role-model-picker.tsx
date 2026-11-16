@@ -38,6 +38,7 @@ export function RoleModelPicker({
   providers,
   defaultOption,
   disabled,
+  houseModelsOnly,
   onPick,
   onConnect,
   reopen,
@@ -50,6 +51,8 @@ export function RoleModelPicker({
   /** The deployment's model, offered to clear the slot back to it. */
   defaultOption?: string;
   disabled?: boolean;
+  /** The deployment refuses new connections (house models only), so no connect entries. */
+  houseModelsOnly?: boolean;
   onPick: (option: RoleModelOption | null) => void;
   onConnect: (provider: ConnectableProvider) => void;
   /** Opens the picker searching for `query`, e.g. a provider that just connected. */
@@ -81,7 +84,11 @@ export function RoleModelPicker({
     return [...grouped];
   }, [visible]);
   const needle = query.trim();
-  const matchingProviders = visible.flatMap((row) => (row.provider ? [row.provider] : []));
+  // House models only: providers that need a connection are not offered.
+  const connectable = houseModelsOnly ? [] : providers;
+  const matchingProviders = visible.flatMap((row) =>
+    row.provider && connectable.some((p) => p.id === row.provider!.id) ? [row.provider] : [],
+  );
   const values = [
     ...(defaultOption && !needle ? ["default"] : []),
     ...groups.flatMap(([, entries]) => entries.map(optionValue)),

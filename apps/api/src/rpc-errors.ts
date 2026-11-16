@@ -15,6 +15,7 @@ import {
 } from "@rakazo/db";
 import { getLogContext, getLogger } from "@rakazo/logging";
 import { markExpectedFailure } from "@rakazo/logging/hono";
+import { INVITE_FAILURE_MESSAGE, InviteError } from "./me/invitations/invitations.js";
 import { voiceAccountErrorStatus } from "./voice.js";
 
 /**
@@ -85,6 +86,15 @@ export function handleRpcError(
   if (error instanceof SandboxDamagedError) {
     getLogger().warn(`rpc ${path.join("/")} computer damaged`);
     throw new ORPCError("CONFLICT", { message: error.message, cause: error });
+  }
+  // An invite refused by name: the caller's token or the inviter's allowance, not a failure.
+  if (error instanceof InviteError) {
+    getLogger().warn(`rpc ${path.join("/")} invite refused`, { reason: error.reason });
+    throw new ORPCError(error.reason === "quota_exceeded" ? "CONFLICT" : "BAD_REQUEST", {
+      message: INVITE_FAILURE_MESSAGE[error.reason],
+      data: { reason: error.reason },
+      cause: error,
+    });
   }
   // The client went away mid-request, so whatever failed next has no one waiting for it.
   if (signal?.aborted && !(error instanceof ORPCError)) {
