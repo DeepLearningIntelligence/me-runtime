@@ -17,6 +17,8 @@ const vault = vi.hoisted(() => ({
 }));
 // No bot has an email address unless a test gives it one.
 const bots = vi.hoisted(() => ({ emailAddresses: vi.fn(async (): Promise<unknown> => null) }));
+// The Go Fund It Now row reads the space's connectors; none unless a test provides one.
+const mcpServersList = vi.hoisted(() => ({ list: vi.fn(async (): Promise<unknown> => []) }));
 
 // The dialog itself is tested on its own; here it is a pair of buttons that settle it.
 vi.mock("./ConfirmIdentityDialog", async () => {
@@ -46,12 +48,19 @@ vi.mock("./ConfirmIdentityDialog", async () => {
   };
 });
 
-vi.mock("../lib/rpc", () => ({
-  rpc: { vault, bots },
-  rpcForSpace: () => ({ vault, bots }),
-  createSpaceRpc: () => ({ vault, bots }),
-  selectedSpaceId: () => null,
-}));
+vi.mock("../lib/rpc", () => {
+  const client = {
+    vault,
+    bots,
+    mcp: { servers: { list: mcpServersList.list } },
+  };
+  return {
+    rpc: client,
+    rpcForSpace: () => client,
+    createSpaceRpc: () => client,
+    selectedSpaceId: () => null,
+  };
+});
 vi.mock("@lingui/react/macro", () => {
   const t = (parts: TemplateStringsArray, ...values: unknown[]) =>
     parts.reduce((text, part, index) => `${text}${index > 0 ? values[index - 1] : ""}${part}`, "");
@@ -194,6 +203,7 @@ beforeEach(() => {
   vault.put.mockReset().mockResolvedValue(rows[0]);
   vault.remove.mockReset().mockResolvedValue({ ok: true });
   vault.reveal.mockReset();
+  mcpServersList.list.mockReset().mockResolvedValue([]);
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -232,6 +242,57 @@ describe("VaultSettings list", () => {
     expect(find("vault-new")).not.toBeNull();
     expect(find("vault-card")).toBeNull();
     expect(find("vault-filter-all")).toBeNull();
+  });
+
+  it("offers no card to add: payments stay out of the product (D-RUN-12)", async () => {
+    await render();
+    await click("vault-new");
+    expect(find("vault-new-card")).toBeNull();
+    const menu = [
+      ...document.querySelectorAll('[role="menu"], [data-slot="dropdown-menu-content"]'),
+    ]
+      .map((item) => item.textContent)
+      .join(" ");
+    expect(menu).not.toContain("Card");
+  });
+
+  it("shows the Go Fund It Now connection with its state and nothing to reveal", async () => {
+    mcpServersList.list.mockResolvedValue([
+      {
+        id: "srv_gfin",
+        slug: "gfin",
+        name: "Go Fund It Now (public search)",
+        enabled: true,
+        health: { status: "ok", message: null, toolCount: 3, checkedAt: stamp },
+        oauthClientId: null,
+        oauthStatus: "none",
+      },
+      {
+        id: "srv_other",
+        slug: "github",
+        name: "GitHub",
+        enabled: true,
+        health: { status: "ok", message: null, toolCount: 1, checkedAt: stamp },
+        oauthClientId: null,
+        oauthStatus: "none",
+      },
+    ]);
+    await render();
+    const block = find("vault-gfin");
+    expect(block).not.toBeNull();
+    expect(block!.textContent).toContain("Go Fund It Now (public search)");
+    expect(block!.textContent).toContain("Connected");
+    // The connection is a fact, not an editable item: no reveal, no edit, no remove.
+    expect(block!.querySelectorAll("button")).toHaveLength(0);
+    // Other connectors stay in Connectors, not in the vault.
+    expect(block!.textContent).not.toContain("GitHub");
+  });
+
+  it("shows the Go Fund It Now block even when the connector list fails to load", async () => {
+    mcpServersList.list.mockRejectedValue(new Error("offline"));
+    await render();
+    expect(find("vault-gfin")).not.toBeNull();
+    expect(find("vault-gfin")!.textContent).toContain("Could not load the connection.");
   });
 
   it("lists the bots' email addresses in the account's vault only", async () => {
@@ -294,29 +355,8 @@ describe("VaultSettings list", () => {
 });
 
 describe("VaultSettings new items", () => {
-  it("saves a card as one encoded value, named by the server and billed to a contact", async () => {
-    await render();
-    await startNew("card");
-    await type(field("Card number"), "4242 4242 4242 4242");
-    expect(byTestId("vault-card-brand").textContent).toBe("Visa");
-    await type(field("Expiry"), "08/30");
-    await type(field("Security code"), "123");
-    await type(field("Billing address"), "home");
-    await click(buttonIn(editor(), "Save")!);
-    expect(vault.put).toHaveBeenCalledWith({
-      scope: "account",
-      destination: { name: undefined, origin: "", auth: { type: "card" } },
-      value: encodeCardSecret({
-        number: "4242424242424242",
-        expMonth: 8,
-        expYear: 2030,
-        cvc: "123",
-        billing: "home",
-      }),
-    });
-    expect(vault.list).toHaveBeenCalledTimes(2);
-    expect(editor()).toBeNull();
-  });
+  // No card test: the product offers no card to add (D-RUN-12), so the New menu
+  // never opens the card editor. Editing an existing card stays covered below.
 
   it("saves a contact under its label, with a note added on request", async () => {
     await render();

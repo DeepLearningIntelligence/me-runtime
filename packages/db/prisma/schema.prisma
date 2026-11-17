@@ -2171,6 +2171,8 @@ model McpServer {
 
   @@unique([spaceId, userId, slug])
   @@index([spaceId, userId])
+  /// The provisioned connection converges by owner and slug at every admission.
+  @@index([userId, slug])
   @@index([installId])
   @@map("mcp_servers")
 }

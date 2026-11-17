@@ -21,6 +21,7 @@ import { deploymentModelUsageLookup, resolveDeploymentModel } from "./deployment
 import { createRunExecutor } from "./executor.js";
 import type { ExecutorDeps } from "./executor-deps.js";
 import { ExpoPushProvider } from "./expo-push.js";
+import { GFIN_TOOL_GUARD, guardConnectorTools } from "./gfin-connection.js";
 import type { RemoteConnectorDependencies } from "./installed-connectors.js";
 import { InstalledConnectorProvider } from "./installed-connectors.js";
 import { IntegrationProviderSettings } from "./integration-provider-settings.js";
@@ -147,7 +148,9 @@ export function createConnectorRuntime(
     ...integrationSettings
       .providers()
       .filter((provider) => !composio || provider.describe().id !== "composio"),
-    mcp,
+    // The deployment-managed GFIN connection serves its closed public tool set only,
+    // in this process and in the worker alike; see gfin-connection.ts.
+    guardConnectorTools(mcp, GFIN_TOOL_GUARD),
     ...(overrides.connectors ?? []),
   ]);
   integrationSettings.warmDirectories();

@@ -14,6 +14,7 @@ import { ApprovalRulesSettings } from "../components/ApprovalRulesSettings";
 import { computersAreUnavailable } from "../components/ComputersUnavailableHint";
 import { PlanUsage } from "../components/PlanUsage";
 import { SETTINGS_CONTENT_WIDTH, SettingsGroup, SettingsRow } from "../components/SettingsRows";
+import { SpaceMembersSettings } from "../components/SpaceMembersSettings";
 import { VaultSettings } from "../components/VaultSettings";
 import { canChooseOwnComputer } from "../lib/computer-sandbox";
 import { desktopBridge } from "../lib/desktop";
@@ -26,6 +27,7 @@ import {
   UsageSettingsPanel,
 } from "./AccountSettingsOverlay";
 import { BillingSettingsPanel } from "./BillingSettingsPanel";
+import { InvitesSettingsPanel } from "./InvitesSettingsPanel";
 import { MemorySettingsOverlay } from "./MemorySettingsOverlay";
 import { MessagingSettingsPanel } from "./MessagingSettingsPanel";
 import { ModelSettingsOverlay } from "./ModelSettingsOverlay";
@@ -434,7 +436,18 @@ export function SettingsOverlay({
                   ) : null}
                   {section === "confirmations" ? <ApprovalRulesSettings scope="account" /> : null}
                   {section === "vault" ? <VaultSettings scope="account" /> : null}
-                  {section === "messaging" && messagingEnabled ? <MessagingSettingsPanel /> : null}
+                  {section === "messaging" && messagingEnabled ? (
+                    <div className="space-y-8">
+                      <MessagingSettingsPanel />
+                      {space ? (
+                        <SpaceMembersSettings
+                          space={space}
+                          onLeft={(activeSpaceId) => onLeftSpace?.(space.id, activeSpaceId)}
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {section === "invites" ? <InvitesSettingsPanel /> : null}
                   {section === "wallet" && paymentWalletProvider ? (
                     <PaymentWalletSettingsPanel provider={paymentWalletProvider} />
                   ) : null}

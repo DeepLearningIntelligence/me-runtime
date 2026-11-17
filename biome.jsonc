@@ -32,7 +32,9 @@
         "**/packages/ui-web/src/**/*.tsx",
         "!**/*.test.tsx",
         "!**/packages/ui-web/src/bot-avatar.tsx",
-        "!**/apps/web/src/pages/WindowChrome.tsx"
+        "!**/apps/web/src/pages/WindowChrome.tsx",
+        // The onboarding WhatsApp icon carries WhatsApp's own brand green.
+        "!**/apps/web/src/me/onboarding/flow.tsx"
       ]
     },
     {

@@ -3,7 +3,6 @@ import {
   credentialIssue,
   MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
-  signupRequiresEmailVerification,
   suggestEmailCorrection,
 } from "@rakazo/core";
 import { Button, Input, InputOTP, InputOTPGroup, InputOTPSlot, Label } from "@rakazo/ui-web";
@@ -19,9 +18,10 @@ import { newAccountDestination, signInNext } from "../lib/sign-in-next";
 import { runSsoFlow } from "../lib/sso-flow";
 import { authErrorText, credentialIssueText } from "../lib/user-error";
 import { BRAND_NAME } from "../me/brand.js";
+import { PhoneDoorPanel } from "../me/onboarding/phone-signin";
 import { WindowChrome } from "./WindowChrome";
 
-type AuthMode = "in" | "up" | "forgot";
+type AuthMode = "in" | "forgot";
 
 // off-scale: 16px below md stops iOS Safari zooming into a focused field.
 const fieldClass = "mt-2 h-12 rounded-xl px-4 text-[16px]/6 md:text-body-lg";
@@ -30,16 +30,15 @@ export const submitClass = "mt-3 h-12 w-full rounded-xl text-body-lg";
 
 export function AuthPage({ mode }: { mode: AuthMode }) {
   const { t } = useLingui();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const next = signInNext(searchParams.get("next"));
   // Switching between sign-in and sign-up keeps where the person was going.
   const nextQuery = next ? `?next=${encodeURIComponent(next)}` : "";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [emailBlurred, setEmailBlurred] = useState(false);
   const [warnedEmail, setWarnedEmail] = useState<string | null>(null);
-  const emailSuggestion = mode === "up" ? suggestEmailCorrection(email) : null;
+  const emailSuggestion = suggestEmailCorrection(email);
   const [error, setError] = useState<string | null>(() => {
     const code = searchParams.get("error");
     if (!code) return null;
@@ -48,8 +47,6 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
   const [pending, setPending] = useState(false);
   const entering = useRef(false);
   const [resetSent, setResetSent] = useState(false);
-  // Signup triggers a session refresh that remounts the anonymous auth page.
-  const sent = resetSent || searchParams.get("verify") === "email";
   const [reset, setReset] = useState<AuthCapabilities | null>(null);
   const [capabilityError, setCapabilityError] = useState(false);
   const [capabilityAttempt, setCapabilityAttempt] = useState(0);
@@ -60,13 +57,17 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
   const codeMode = useCode && !password;
   const codeStep = useCode && codeSent;
   const passwordFieldId = mode === "in" ? "current-password" : "new-password";
+  // The phone door is the person's way in (D-RUN-5); the email form stays for
+  // the owner and admins, who reach it from the phone tab's link.
+  const [useEmail, setUseEmail] = useState(false);
+  const phoneFirst = Boolean(reset?.phoneSignin) && mode === "in" && !useEmail;
+  // Without sign-up there is no email-verification wait; only the reset flow waits.
+  const sent = resetSent;
   const title =
     sent || codeStep ? (
       <Trans>Check your email</Trans>
     ) : mode === "in" ? (
       <Trans>Sign in to {BRAND_NAME}</Trans>
-    ) : mode === "up" ? (
-      <Trans>Create your {BRAND_NAME}</Trans>
     ) : (
       <Trans>Reset your password</Trans>
     );
@@ -145,20 +146,9 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
         setCodeSent(true);
         return;
       }
-      const result =
-        mode === "up"
-          ? await authClient.signUp.email({
-              email: trimmedEmail,
-              password,
-              name: name || trimmedEmail.split("@")[0] || "User",
-            })
-          : await authClient.signIn.email({ email: trimmedEmail, password });
+      const result = await authClient.signIn.email({ email: trimmedEmail, password });
       if (result.error) {
         setError(authErrorText(result.error, t`Could not continue`));
-        return;
-      }
-      if (mode === "up" && signupRequiresEmailVerification(result.data)) {
-        setSearchParams({ verify: "email", ...(next ? { next } : {}) });
         return;
       }
       enterApp();
@@ -178,8 +168,6 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
       const result = await authClient.signIn.emailOtp({
         email: trimmedEmail,
         otp,
-        // Only used when this creates the account.
-        name: mode === "up" ? name || trimmedEmail.split("@")[0] || "User" : undefined,
       });
       if (result.error) {
         setError(authErrorText(result.error, t`Could not continue`));
@@ -240,6 +228,19 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
             <Trans>Back to sign in</Trans>
           </Link>
         </div>
+      ) : phoneFirst ? (
+        <>
+          <PhoneDoorPanel onSignedIn={enterApp} />
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="mt-3 text-muted-foreground"
+            onClick={() => setUseEmail(true)}
+          >
+            <Trans>Sign in with email</Trans>
+          </Button>
+        </>
       ) : (
         <>
           {capabilityError ? (
@@ -273,22 +274,6 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
           ) : null}
           {reset?.passwordAuth ? (
             <>
-              {mode === "up" && !codeStep ? (
-                <div className="mb-4 w-full">
-                  <Label htmlFor="name" className="text-muted-foreground">
-                    <Trans>Name</Trans>
-                  </Label>
-                  <Input
-                    id="name"
-                    name="name"
-                    autoComplete="name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder={t`Your name`}
-                    className={fieldClass}
-                  />
-                </div>
-              ) : null}
               {codeStep ? (
                 <div className="flex w-full justify-center">
                   <InputOTP
@@ -364,7 +349,6 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
                     placeholder={t`Password`}
                     type="password"
                     required={!useCode}
-                    minLength={mode === "up" ? MIN_PASSWORD_LENGTH : undefined}
                     maxLength={MAX_PASSWORD_LENGTH}
                     className={fieldClass}
                   />
@@ -435,19 +419,10 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
               {codeStep ? null : (
                 <p className="mt-8 text-muted-foreground">
                   {mode === "in" ? (
-                    <>
-                      <Trans>Don’t have an account?</Trans>{" "}
-                      <Link to={`/sign-up${nextQuery}`} className="font-medium text-foreground">
-                        <Trans>Sign up</Trans>
-                      </Link>
-                    </>
-                  ) : mode === "up" ? (
-                    <>
-                      <Trans>Already have an account?</Trans>{" "}
-                      <Link to={`/sign-in${nextQuery}`} className="font-medium text-foreground">
-                        <Trans>Sign in</Trans>
-                      </Link>
-                    </>
+                    <Trans>
+                      me.io is invite-only. Open the invite link you were sent, or ask your inviter
+                      for one.
+                    </Trans>
                   ) : (
                     <Link to={`/sign-in${nextQuery}`} className="font-medium text-foreground">
                       <Trans>Back to sign in</Trans>
@@ -566,10 +541,11 @@ export function AuthFrame({
       </div>
       <div className="flex flex-1 items-center justify-center px-6 pb-16">
         <form onSubmit={onSubmit} className="flex w-full max-w-[460px] flex-col items-center">
-          <div className="flex h-[74px] w-[74px] items-center justify-center gap-[11px] rounded-full bg-muted">
-            <span className="h-5 w-[9px] rounded-full bg-primary" />
-            <span className="h-5 w-[9px] rounded-full bg-primary" />
-          </div>
+          <img
+            src="/brand/me-mark.png"
+            alt=""
+            className="h-[74px] w-[74px] rounded-full bg-muted object-contain p-2"
+          />
           <h1
             aria-live="polite"
             className="mb-9 mt-7 text-balance text-center text-display font-medium tracking-tight"

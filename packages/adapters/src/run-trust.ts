@@ -10,6 +10,7 @@ import { sitesInText, urlSite } from "@rakazo/core/egress";
 import { findAutoReviewPreference, listApprovalRules, storedBatchActions } from "@rakazo/db";
 import { boundDirectApprovalDetails, catalogApprovalDetails } from "./approval-effect.js";
 import type { ExecutorDeps } from "./executor-deps.js";
+import { deploymentDenyRules } from "./me-action-policy.js";
 import type { EffectiveModelRole } from "./model-roles.js";
 import { effectiveModelRole } from "./model-roles.js";
 import { routineTaskInstructions } from "./routine-watch.js";
@@ -78,10 +79,12 @@ export function createRunTrustLoaders(
   } = input;
   let approvalRulesPromise: Promise<ActionApprovalRule[]> | undefined;
   const loadApprovalRules = () => {
+    // The deployment's deny rules (me-action-policy) ride on every load, so every
+    // execution path that consults the evaluator consults them too.
     approvalRulesPromise ??= listApprovalRules(deps.prisma, {
       userId: run.userId,
       spaceId: run.spaceId,
-    }).then((rules) => rules as ActionApprovalRule[]);
+    }).then((rules) => [...deploymentDenyRules(), ...(rules as ActionApprovalRule[])]);
     return approvalRulesPromise;
   };
   let approvalModelPromise: Promise<EffectiveModelRole> | undefined;

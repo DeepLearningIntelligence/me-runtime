@@ -6,6 +6,7 @@ import {
   Cpu,
   CreditCard,
   Gauge,
+  Gift,
   KeyRound,
   MessageCircle,
   Monitor,
@@ -77,9 +78,9 @@ export function useSettingsNavItems(available: {
       ? [
           {
             id: "messaging" as const,
-            label: t`Messaging`,
+            label: t`People`,
             icon: MessageCircle,
-            description: t`Chat with your bots from other apps.`,
+            description: t`Who can chat with your bots.`,
           },
         ]
       : []),
@@ -95,6 +96,12 @@ export function useSettingsNavItems(available: {
       : []),
     { id: "usage", label: t`Usage`, icon: Gauge },
     ...(available.billing ? [{ id: "billing" as const, label: t`Billing`, icon: CreditCard }] : []),
+    {
+      id: "invites",
+      label: t`Invites`,
+      icon: Gift,
+      description: t`Your links for bringing people in.`,
+    },
     { id: "organization", label: t`Organization`, icon: Building2 },
     ...(available.updates
       ? [{ id: "updates" as const, label: t`Updates`, icon: CloudDownload }]

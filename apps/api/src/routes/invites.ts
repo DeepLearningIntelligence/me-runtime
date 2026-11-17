@@ -1,5 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import {
+  INVITE_FAILURE_MESSAGE,
   inspectInvite,
   issueInvite,
   listInvites,
@@ -53,7 +54,9 @@ export function invitesRoutes(ctx: RouterContext) {
       /** Public: the welcome page names the inviter before anyone signs in. */
       inspect: os.invites.inspect.handler(async ({ input }) => {
         const inspection = await inspectInvite(deps.prisma, input.token);
-        if (!inspection.ok) return inspection;
+        if (!inspection.ok) {
+          return { ...inspection, message: INVITE_FAILURE_MESSAGE[inspection.reason] };
+        }
         return { ...inspection, expiresAt: inspection.expiresAt.toISOString() };
       }),
     },

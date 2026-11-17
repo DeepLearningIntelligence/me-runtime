@@ -1,6 +1,5 @@
 import type { Locator, Page, Route, TestInfo } from "@playwright/test";
 import { expect, test } from "@playwright/test";
-import { signupRequiresEmailVerification } from "@rakazo/core";
 
 export function isRealSandboxProvider(provider = process.env.SANDBOX_PROVIDER) {
   return (
@@ -35,23 +34,27 @@ export async function rpc<T>(page: Page, procedure: string, body: unknown): Prom
 
 export async function completeOnboarding(page: Page, testInfo?: TestInfo) {
   await page.waitForURL(/\/(onboarding|app)/, { timeout: 20_000 });
-  // Optional Server integrations step (needsSetup). Skip when shown, then the
-  // first bot is created automatically — land in Chief's chat with no form.
-  const integrations = page.getByRole("heading", { name: "Server integrations", exact: true });
-  const chief = page.getByText("Chief").first();
-  await integrations.or(chief).waitFor({ timeout: 20_000 });
-  if ((await chief.isVisible().catch(() => false)) && page.url().includes("/app")) {
-    if (testInfo) {
-      await captureScreenshot(page, testInfo, "03-create-first-bot");
-      await captureScreenshot(page, testInfo, "06-onboarding-complete");
-    }
-    return;
-  }
-  if (await integrations.isVisible().catch(() => false)) {
+  // The me.io onboarding (ME-RUN-001): connect WhatsApp is skippable, the
+  // invite meter and the done screen each carry one Continue. A complete
+  // account is moved to /app by the page itself, so both URLs land here.
+  const portal = page
+    .getByRole("button", { name: "Open the portal" })
+    .or(page.getByText("Chief").first());
+  await portal.first().waitFor({ timeout: 20_000 });
+  const skip = page.getByRole("button", { name: "Skip for now" });
+  if (
+    await skip
+      .first()
+      .isVisible()
+      .catch(() => false)
+  ) {
     if (testInfo) await captureScreenshot(page, testInfo, "02-connect-apps");
-    await page.getByRole("button", { name: "Skip", exact: true }).click();
+    await skip.first().click();
+    await page.getByRole("button", { name: "Continue" }).click();
   }
-  await page.waitForURL(/\/app\//, { timeout: 20_000 });
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Open the portal" }).click();
+  await page.waitForURL(/\/app/, { timeout: 20_000 });
   await expect(page.getByText("Chief").first()).toBeVisible();
   if (testInfo) {
     await captureScreenshot(page, testInfo, "03-create-first-bot");
@@ -60,18 +63,17 @@ export async function completeOnboarding(page: Page, testInfo?: TestInfo) {
 }
 
 /**
- * Creates the account through the auth API, as the sign-up form does, and opens
- * the page the form would land on. Passing testInfo goes through the form to
- * capture it; tests of the form itself use signupThroughForm.
+ * Creates the account through the auth API, as the sign-in form's email path
+ * does for the owner and admins, and opens onboarding. (People sign in through
+ * the WhatsApp phone door; these tests exercise the portal that follows.)
  */
 export async function signup(
   page: Page,
   email: string,
   password: string,
   name: string,
-  testInfo?: TestInfo,
+  _testInfo?: TestInfo,
 ) {
-  if (testInfo) return signupThroughForm(page, email, password, name, testInfo);
   const baseURL = test.info().project.use.baseURL;
   if (!baseURL) throw new Error("signup needs a baseURL");
   const response = await page.request.post("/api/auth/sign-up/email", {
@@ -80,24 +82,7 @@ export async function signup(
     headers: { origin: new URL(baseURL).origin },
   });
   if (!response.ok()) throw new Error(`sign-up ${response.status()}: ${await response.text()}`);
-  const verify = signupRequiresEmailVerification(await response.json());
-  await page.goto(verify ? "/sign-up?verify=email" : "/onboarding");
-}
-
-export async function signupThroughForm(
-  page: Page,
-  email: string,
-  password: string,
-  name: string,
-  testInfo?: TestInfo,
-) {
-  await page.goto("/sign-up");
-  await expect(page.getByRole("heading", { name: "Create your me.io" })).toBeVisible();
-  if (testInfo) await captureScreenshot(page, testInfo, "01-sign-up");
-  await page.getByPlaceholder("Your name").fill(name);
-  await page.getByPlaceholder("Your email address").fill(email);
-  await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: "Create account" }).click();
+  await page.goto("/onboarding");
 }
 
 /** Opens Integrations' add menu and picks one of its custom sources. */

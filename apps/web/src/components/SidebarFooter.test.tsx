@@ -56,6 +56,9 @@ async function render(
           onSkills={vi.fn()}
           onBoard={onBoard}
           onArtifacts={() => {}}
+          onVault={vi.fn()}
+          onPeople={vi.fn()}
+          onInvites={vi.fn()}
           onSettings={() => {}}
           onLogOut={() => {}}
           signingOut={false}
@@ -140,12 +143,13 @@ it("opens integrations and keeps the existing account actions and links", async 
   expect(onIntegrations).toHaveBeenCalledOnce();
   const menu = document.querySelector('[data-slot="popover-content"]')!;
   expect([...menu.querySelectorAll("button, a")].map((row) => row.textContent)).toEqual([
+    "Vault",
+    "People",
+    "Invites",
     "Settings",
     "Skills",
-    "Artifacts",
+    "Files",
     "Board",
-    "Get the mobile app",
-    "Docs",
     "Log out",
   ]);
   expect(host.querySelector('[data-testid="user-menu-trigger"]')?.getAttribute("aria-label")).toBe(
@@ -159,13 +163,12 @@ it("omits Board when unavailable", async () => {
   );
 });
 
-it("offers Google Play on Android", async () => {
-  vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Android");
+it("offers no app store or upstream self-host links (D-RUN-4)", async () => {
   await render();
-  const mobile = [...document.querySelectorAll("a")].find(
-    (link) => link.textContent === "Get the mobile app",
-  )!;
-  expect(mobile.href).toBe("https://play.google.com/store/apps/details?id=com.rakazo.app");
+  const menu = document.querySelector('[data-slot="popover-content"]')!;
+  expect([...menu.querySelectorAll("a")]).toHaveLength(0);
+  expect(menu.textContent).not.toContain("Get the mobile app");
+  expect(menu.textContent).not.toContain("Docs");
 });
 
 it("falls back when app artwork fails and accepts replacement artwork", async () => {
@@ -275,6 +278,9 @@ async function renderOrganizations(
           onIntegrations={() => {}}
           onSkills={() => {}}
           onArtifacts={() => {}}
+          onVault={() => {}}
+          onPeople={() => {}}
+          onInvites={() => {}}
           onSettings={() => {}}
           onLogOut={() => {}}
           signingOut={false}
@@ -291,13 +297,13 @@ async function renderOrganizations(
 
 it("shows no organization rows with one organization", async () => {
   const rows = await renderOrganizations([personal]);
-  expect(rows[0]!.textContent).toBe("Settings");
+  expect(rows[0]!.textContent).toBe("Vault");
 });
 
 it("lists two organizations with the active one checked", async () => {
   const onSwitch = vi.fn();
   const rows = await renderOrganizations([personal, work], onSwitch);
-  expect(rows.map((row) => row.textContent).slice(0, 3)).toEqual(["Personal", "Work", "Settings"]);
+  expect(rows.map((row) => row.textContent).slice(0, 3)).toEqual(["Personal", "Work", "Vault"]);
   expect(rows[0]!.getAttribute("aria-current")).toBe("true");
   expect(rows[0]!.querySelector("svg")).not.toBeNull();
   expect(rows[1]!.hasAttribute("aria-current")).toBe(false);

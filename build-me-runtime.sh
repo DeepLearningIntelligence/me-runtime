@@ -6,10 +6,11 @@
 #
 #   ./build-me-runtime.sh <sha>
 #
-# What it does, in order: verify the checkout is that sha and clean, build the image
-# as me-runtime:<sha>, point the compose override at it, bring the stack up, probe
-# health, and roll back to the previous tag if the probe fails. It prints the tag it
-# built and the probe output, and never prints a value from .env.
+# What it does, in order: verify the checkout is that sha and clean, check the
+# safety posture in .env, build the image as me-runtime:<sha>, point the compose
+# override at it, bring the stack up, probe health, and roll back to the previous
+# tag if the probe fails. It prints the tag it built and the probe output, and never
+# prints a value from .env.
 
 set -euo pipefail
 
@@ -34,6 +35,31 @@ git checkout --quiet "$SHA"
 
 TAG="me-runtime:${SHA:0:12}"
 PREVIOUS="$(grep -oE 'me-runtime:[a-f0-9]{12}' "$RUNTIME_DIR/$OVERRIDE" 2>/dev/null | head -1 || true)"
+
+# The deployment's safety posture (packet G, D-RUN-12, D-RUN-7): the .env states it,
+# so a deploy never inherits the installer's or a stale value's choice. Refuse at
+# deploy time rather than silently changing what the runtime allows.
+ENV_FILE="$RUNTIME_DIR/.env"
+[ -f "$ENV_FILE" ] || fail "$ENV_FILE is missing: the safety posture cannot be checked"
+env_value() {
+  sed -n "s/^$1=[[:space:]]*//p" "$ENV_FILE" | tail -1 | tr -d '\047\042\r'
+}
+[ "$(env_value SANDBOX_COMPUTER_EGRESS)" = "restricted" ] ||
+  fail "SANDBOX_COMPUTER_EGRESS must be restricted in $ENV_FILE: agent-computer egress is stated, not inherited"
+[ "$(env_value SIGNUPS_ENABLED)" = "false" ] ||
+  fail "SIGNUPS_ENABLED must be false in $ENV_FILE: accounts exist only through the invite-gated phone door"
+case "$(env_value PI_SESSION_RECORDING)" in
+  "" | false) ;;
+  *) fail "PI_SESSION_RECORDING must stay off in $ENV_FILE: no prompt or completion transcripts are recorded" ;;
+esac
+case "$(env_value PAID_SERVICES_PROVIDER)" in
+  "" | disabled) ;;
+  *) fail "PAID_SERVICES_PROVIDER must be disabled in $ENV_FILE: no paid data services (Treg stays off)" ;;
+esac
+case "$(env_value PAYMENT_WALLET_PROVIDER)" in
+  "") ;;
+  *) fail "PAYMENT_WALLET_PROVIDER must be unset in $ENV_FILE: the wallet is out of scope and request_purchase is denied" ;;
+esac
 
 echo "building $TAG"
 docker build -t "$TAG" -f Dockerfile . || fail "docker build failed"

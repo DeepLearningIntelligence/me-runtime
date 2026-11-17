@@ -1,9 +1,9 @@
 import type { Request } from "@playwright/test";
 import { expect, test } from "@playwright/test";
-import { captureScreenshot, completeOnboarding, signup, signupThroughForm } from "./helpers";
+import { captureScreenshot, completeOnboarding, signup } from "./helpers";
 
 test(
-  "sign-up stays blank until session and sign-in options are ready",
+  "sign-in stays blank until session and sign-in options are ready",
   { tag: "@nightly" },
   async ({ page }, testInfo) => {
     let releaseSession = () => {};
@@ -25,87 +25,82 @@ test(
       });
     });
 
-    await page.goto("/sign-up");
+    await page.goto("/sign-in");
     await expect(page.locator('[data-rakazo-app-state="session-pending"]')).toBeVisible();
     await expect(page.locator("#root")).toHaveText("");
-    await captureScreenshot(page, testInfo, "signup-session-pending");
+    await captureScreenshot(page, testInfo, "signin-session-pending");
 
     const capabilitiesRequested = page.waitForRequest("**/api/auth/capabilities");
     releaseSession();
     await capabilitiesRequested;
     await expect(page.locator('[data-rakazo-app-state="ready"]')).toBeVisible();
     await expect(page.locator("#root")).toHaveText("");
-    await captureScreenshot(page, testInfo, "signup-options-pending");
+    await captureScreenshot(page, testInfo, "signin-options-pending");
 
     releaseCapabilities();
-    await expect(page.getByRole("heading", { name: "Create your me.io" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Sign in to me.io" })).toBeVisible();
     await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
-    await captureScreenshot(page, testInfo, "signup-ready");
+    await captureScreenshot(page, testInfo, "signin-ready");
   },
 );
-test("signup suggests a fix for a mistyped email domain", async ({ page }, testInfo) => {
-  let signups = 0;
-  await page.route("**/api/auth/get-session**", (route) => route.fulfill({ json: null }));
-  await page.route("**/api/auth/capabilities", (route) =>
-    route.fulfill({
-      json: { passwordAuth: true, sso: null, passwordReset: false, resetUrl: null },
-    }),
-  );
-  await page.route("**/api/auth/sign-up/email", (route) => {
-    signups += 1;
-    return route.fulfill({
-      json: { token: null, user: { id: "pending-user", emailVerified: false } },
-    });
-  });
-  await page.goto("/sign-up");
-  await page.getByLabel("Name").fill("Typo User");
-  await page.getByLabel("Email").fill("typo@gmial.com");
-  await page.getByLabel("Password", { exact: true }).fill("password12");
-  await page.getByRole("button", { name: "Create account", exact: true }).click();
-  const fix = page.getByRole("button", { name: "typo@gmail.com" });
-  await expect(fix).toBeVisible();
-  expect(signups).toBe(0);
-  await captureScreenshot(page, testInfo, "signup-email-typo");
-  await fix.click();
-  await expect(page.getByLabel("Email")).toHaveValue("typo@gmail.com");
-  await page.getByRole("button", { name: "Create account", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
-  expect(signups).toBe(1);
-});
 
 test(
-  "restricted signup waits for mailbox verification",
+  "the WhatsApp door is the sign-in page's default when the phone door is configured",
   { tag: "@nightly" },
   async ({ page }, testInfo) => {
     await page.route("**/api/auth/get-session**", (route) => route.fulfill({ json: null }));
     await page.route("**/api/auth/capabilities", (route) =>
       route.fulfill({
-        json: { passwordAuth: true, sso: null, passwordReset: false, resetUrl: null },
+        json: {
+          passwordAuth: true,
+          sso: null,
+          passwordReset: false,
+          resetUrl: null,
+          phoneSignin: true,
+          whatsappChatUrl: "https://wa.me/15550001",
+        },
       }),
     );
-    await page.route("**/api/auth/sign-up/email", (route) =>
-      route.fulfill({
-        json: { token: null, user: { id: "pending-user", emailVerified: false } },
-      }),
-    );
-    await page.goto("/sign-up");
-    await page.getByLabel("Name").fill("Pending User");
-    await page.getByLabel("Email").fill("pending@example.test");
-    await page.getByLabel("Password", { exact: true }).fill("password12");
-    await page.getByRole("button", { name: "Create account", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
-    await expect(page).toHaveURL(/\/sign-up\?verify=email$/);
-    await page.reload();
-    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
-    await captureScreenshot(page, testInfo, "signup-verification-required");
-    await page.getByRole("link", { name: "Back to sign in" }).click();
+    const startBodies: Array<Record<string, unknown>> = [];
+    await page.route("**/api/auth/phone/start", async (route) => {
+      startBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      await route.fulfill({
+        json: {
+          ok: true,
+          nonce: "ME-TEST01",
+          waLink: "https://wa.me/15550001?text=ME-TEST01",
+          expiresAt: new Date(Date.now() + 600_000).toISOString(),
+          ttlMs: 600_000,
+        },
+      });
+    });
+    const verifyBodies: Array<Record<string, unknown>> = [];
+    await page.route("**/api/auth/phone/verify", async (route) => {
+      verifyBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      await route.fulfill({ json: { ok: true } });
+    });
+
+    await page.goto("/sign-in?invite=token-1");
     await expect(page.getByRole("heading", { name: "Sign in to me.io" })).toBeVisible();
+    await page.getByRole("button", { name: "Continue" }).click();
+    // The invite token rides with the start call; the door then hands the
+    // person to WhatsApp for the pre-filled message.
+    await expect(startBodies[0]).toEqual({ inviteToken: "token-1" });
+    await expect(page.getByRole("link", { name: "Open WhatsApp" })).toHaveAttribute(
+      "href",
+      "https://wa.me/15550001?text=ME-TEST01",
+    );
+    await captureScreenshot(page, testInfo, "phone-door-open");
+    await page.getByLabel("Code").fill("654321");
+    await expect(verifyBodies[0]).toEqual({ nonce: "ME-TEST01", code: "654321" });
   },
 );
 
 test(
-  "a new visitor opening the app lands on sign up, fits a narrow phone, and can switch to sign in",
-  { tag: "@nightly" },
+  "a new visitor opening the app lands on sign in and fits a narrow phone",
+  {
+    tag: "@nightly",
+  },
   async ({ page }, testInfo) => {
     await page.route("**/api/auth/get-session**", (route) => route.fulfill({ json: null }));
     await page.route("**/api/auth/capabilities", (route) =>
@@ -115,13 +110,11 @@ test(
     );
     await page.setViewportSize({ width: 320, height: 640 });
     await page.goto("/");
-    await expect(page).toHaveURL(/\/sign-up$/);
-    await expect(page.getByRole("heading", { name: "Create your me.io" })).toBeVisible();
-    await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 320);
-    await captureScreenshot(page, testInfo, "logged-out-sign-up-phone");
-    await page.getByRole("link", { name: "Sign in", exact: true }).click();
     await expect(page).toHaveURL(/\/sign-in$/);
     await expect(page.getByRole("heading", { name: "Sign in to me.io" })).toBeVisible();
+    await expect(page.getByText("me.io is invite-only")).toBeVisible();
+    await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 320);
+    await captureScreenshot(page, testInfo, "logged-out-sign-in-phone");
   },
 );
 
@@ -139,7 +132,7 @@ test("an unknown page offers a way home", async ({ page }, testInfo) => {
   await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
   await captureScreenshot(page, testInfo, "not-found");
   await page.getByRole("link", { name: "Go home" }).click();
-  await expect(page).toHaveURL(/\/sign-up$/);
+  await expect(page).toHaveURL(/\/sign-in$/);
 });
 
 test("logout protects bot deep links and sign-in restores the session", async ({
@@ -150,15 +143,7 @@ test("logout protects bot deep links and sign-in restores the session", async ({
   const password = "password12";
   const userName = "Auth Lifecycle";
 
-  await page.goto("/sign-up");
-  await expect(page.getByLabel("Name")).toHaveAttribute("autocomplete", "name");
-  await expect(page.getByLabel("Email")).toHaveAttribute("autocomplete", "username");
-  await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute(
-    "autocomplete",
-    "new-password",
-  );
-
-  await signupThroughForm(page, email, password, userName);
+  await signup(page, email, password, userName);
   await completeOnboarding(page);
 
   await page.waitForURL(/\/app\/[^/]+$/);

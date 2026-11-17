@@ -98,6 +98,11 @@ export interface AuthEnv {
   afterReplaceSession?: (previous: AuthSession, session: AuthSession) => Promise<void>;
   /** Runs after each sign-in, with the headers of the request that signed in. */
   afterSignIn?: (userId: string, headers?: Headers) => Promise<void>;
+  /** Runs at every workspace admission (a new account's first session and every later
+   * sign-in), once the person's own workspace membership is ensured. The deployment
+   * extends the person's setup here, e.g. the provisioned GFIN connection. Failures of
+   * this hook must not fail the sign-in; the caller catches and logs them. */
+  afterWorkspaceReady?: (user: { id: string }) => Promise<void>;
   /** The operator provisions accounts from a directory over SCIM (see `createDirectory`). */
   directoryProvisioning?: boolean;
 }
@@ -730,6 +735,8 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
                   message: "Registration is closed",
                 });
             }
+            // The workspace exists now, on admission and on every later sign-in alike.
+            await env.afterWorkspaceReady?.({ id: user.id });
           },
           after: async (session, ctx) => {
             await env.afterSignIn?.(session.userId, ctx?.headers);

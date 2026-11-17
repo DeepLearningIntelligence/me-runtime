@@ -1348,7 +1348,6 @@ function SpaceShell() {
           activeBotId={activeBotId.current}
           stdioEnabled={bootstrapMe?.mcpStdioEnabled === true}
           onConnectedAppsChange={setFooterLogos}
-          onOpenBot={openCreatedBot}
         />
       </Suspense>
 

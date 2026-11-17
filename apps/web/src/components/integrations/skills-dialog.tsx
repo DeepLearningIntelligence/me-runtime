@@ -16,7 +16,7 @@ import {
   Spinner,
 } from "@rakazo/ui-web";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, LayoutTemplate, X } from "lucide-react";
+import { ChevronLeft, X } from "lucide-react";
 import { useState } from "react";
 import { useSpaceQueries } from "../../lib/query";
 import { AgentSkills } from "../../pages/KnowledgeSection";
@@ -39,13 +39,7 @@ function skillCount(install: CapabilityInstall) {
 }
 
 /** Your skills in this space, the skills plugins added, and skill packs to browse. */
-export function SkillsDialog({
-  onClose,
-  onOpenTemplates,
-}: {
-  onClose: () => void;
-  onOpenTemplates?: () => void;
-}) {
+export function SkillsDialog({ onClose }: { onClose: () => void }) {
   const { t } = useLingui();
   const queries = useSpaceQueries();
   const queryClient = useQueryClient();
@@ -250,17 +244,6 @@ export function SkillsDialog({
             <Trans>Skills</Trans>
           </DialogTitle>
           <div className="flex items-center gap-2">
-            {!selection && !importing && onOpenTemplates ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                data-testid="open-bot-templates"
-                onClick={onOpenTemplates}
-              >
-                <LayoutTemplate />
-                <Trans>Templates</Trans>
-              </Button>
-            ) : null}
             {!selection && !importing ? (
               <Button variant="ghost" size="sm" onClick={() => setImporting(true)}>
                 <Trans>From GitHub</Trans>

@@ -28,7 +28,7 @@ import { markAfterPaint, markOnce } from "./lib/performance";
 import { lazyComponent } from "./lib/preload-recovery";
 import { QueryUserProvider, setQueryUser } from "./lib/query";
 import { remoteImagesPreference } from "./lib/remote-images-preference";
-import { hasSignedInBefore, rememberSignedIn } from "./lib/returning-user";
+import { rememberSignedIn } from "./lib/returning-user";
 import { rpc } from "./lib/rpc";
 import {
   holdAnonymousGate,
@@ -39,7 +39,6 @@ import {
 } from "./lib/session-gate";
 import {
   MCP_OAUTH_CALLBACK_PATH,
-  newAccountDestination,
   SLACK_INSTALL_CALLBACK_PATH,
   signInNext,
 } from "./lib/sign-in-next";
@@ -57,7 +56,10 @@ const PasswordResetPage = lazyComponent(() =>
   import("./pages/Auth").then((module) => module.PasswordResetPage),
 );
 const OnboardingPage = lazyComponent(() =>
-  import("./pages/Onboarding").then((module) => module.OnboardingPage),
+  import("./me/onboarding/flow").then((module) => module.MeOnboardingPage),
+);
+const WelcomePage = lazyComponent(() =>
+  import("./me/onboarding/welcome").then((module) => module.WelcomePage),
 );
 const NotFoundPage = lazyComponent(() =>
   import("./pages/NotFound").then((module) => module.NotFoundPage),
@@ -179,31 +181,16 @@ function SessionApp() {
         <div className="h-full" data-rakazo-app-state="ready">
           <Suspense fallback={<PageLoading />}>
             <Routes>
-              <Route
-                path="/"
-                element={
-                  <Navigate
-                    to={user ? "/app" : hasSignedInBefore() ? "/sign-in" : "/sign-up"}
-                    replace
-                  />
-                }
-              />
+              <Route path="/" element={<Navigate to={user ? "/app" : "/sign-in"} replace />} />
               <Route
                 path="/sign-in"
                 element={
                   user ? <Navigate to={next ?? "/app"} replace /> : <AuthPage key="in" mode="in" />
                 }
               />
-              <Route
-                path="/sign-up"
-                element={
-                  user ? (
-                    <Navigate to={newAccountDestination(next)} replace />
-                  ) : (
-                    <AuthPage key="up" mode="up" />
-                  )
-                }
-              />
+              {/* Accounts are created through the invite link and the phone door, never a form. */}
+              <Route path="/sign-up" element={<Navigate to="/sign-in" replace />} />
+              <Route path="/welcome" element={<WelcomePage />} />
               <Route
                 path="/forgot-password"
                 element={

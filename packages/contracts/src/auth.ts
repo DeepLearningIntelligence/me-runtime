@@ -19,6 +19,10 @@ export const authCapabilitiesSchema = z.object({
   nativePasskeys: z.object({ ios: z.boolean(), android: z.boolean() }).optional(),
   /** Crisp chat on the paywall; null or omitted when the deployment offers none. */
   crispWebsiteId: z.string().min(1).nullable().optional(),
+  /** The phone door (WhatsApp sign-in) is configured on this server. Absent from older servers. */
+  phoneSignin: z.boolean().optional(),
+  /** The wa.me chat link for this server's business line; null or omitted when none is configured. */
+  whatsappChatUrl: z.string().url().nullable().optional(),
 });
 export type AuthCapabilities = z.infer<typeof authCapabilitiesSchema>;
 

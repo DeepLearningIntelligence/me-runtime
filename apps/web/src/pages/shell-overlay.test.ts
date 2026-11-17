@@ -43,6 +43,10 @@ describe("readShellOverlay", () => {
   it("opens Messaging settings from the old messaging link", () => {
     expect(read("?messaging")).toEqual({ kind: "settings", section: "messaging", spaceId: null });
   });
+
+  it("opens nothing for the bot templates link: this deployment has no marketplace", () => {
+    expect(read("?templates")).toBeNull();
+  });
 });
 
 describe("withShellOverlay", () => {

@@ -69,6 +69,13 @@ vi.mock("../lib/auth", () => ({
   },
 }));
 vi.mock("../lib/rpc", () => ({ clearSpaceSelection: vi.fn() }));
+vi.mock("../me/onboarding/phone-signin", () => ({
+  PhoneDoorPanel: ({ onSignedIn }: { onSignedIn: () => void }) => (
+    <button type="button" onClick={onSignedIn}>
+      door
+    </button>
+  ),
+}));
 const capabilities: AuthCapabilities = {
   passwordAuth: false,
   sso: { name: "Example", availability: "unavailable" },
@@ -89,7 +96,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   delete window.rakazoDesktop;
 });
-async function render(mode: "in" | "up" | "forgot" = "in", entry = "/") {
+async function render(mode: "in" | "forgot" = "in", entry = "/") {
   await act(async () =>
     root.render(
       <MemoryRouter initialEntries={[entry]}>
@@ -112,19 +119,16 @@ async function submit() {
     host.querySelector("form")!.requestSubmit();
   });
 }
-it.each(["in", "up", "forgot"] as const)(
-  "stays blank while capabilities load on %s",
-  async (mode) => {
-    vi.mocked(fetchAuthCapabilities).mockReturnValue(new Promise(() => undefined));
-    await render(mode);
-    expect(host.querySelector("input")).toBeNull();
-    expect(host.textContent).toBe("");
-    expect(host.querySelector("form")).toBeNull();
-  },
-);
-it.each(["in", "up"] as const)("offers SSO and hides credentials on %s", async (mode) => {
-  vi.mocked(fetchAuthCapabilities).mockResolvedValue(capabilities);
+it.each(["in", "forgot"] as const)("stays blank while capabilities load on %s", async (mode) => {
+  vi.mocked(fetchAuthCapabilities).mockReturnValue(new Promise(() => undefined));
   await render(mode);
+  expect(host.querySelector("input")).toBeNull();
+  expect(host.textContent).toBe("");
+  expect(host.querySelector("form")).toBeNull();
+});
+it("offers SSO and hides credentials on sign in", async () => {
+  vi.mocked(fetchAuthCapabilities).mockResolvedValue(capabilities);
+  await render();
   expect(host.textContent).toContain("Continue with Example");
   expect(host.querySelector("input")).toBeNull();
   const sso = host.querySelector("button")!;
@@ -145,9 +149,9 @@ it("retries failed capabilities without exposing a password form", async () => {
   expect(fetchAuthCapabilities).toHaveBeenCalledTimes(2);
   expect(host.textContent).toContain("Continue with Example");
 });
-it.each(["in", "up"] as const)("puts quiet SSO below the primary action on %s", async (mode) => {
+it("puts quiet SSO below the primary action on sign in", async () => {
   vi.mocked(fetchAuthCapabilities).mockResolvedValue({ ...capabilities, passwordAuth: true });
-  await render(mode);
+  await render();
   const email = host.querySelector('input[name="email"]')!;
   const password = host.querySelector('input[type="password"]')!;
   const submit = host.querySelector('button[type="submit"]')!;
@@ -258,15 +262,7 @@ it("signs in with an emailed code when the password is blank", async () => {
   expect(button("Working…").disabled).toBe(true);
 });
 
-it("keeps an invite as the destination when switching to sign-in", async () => {
-  vi.mocked(fetchAuthCapabilities).mockResolvedValue(codeCapabilities);
-  await render("up", `/?next=${encodeURIComponent("/invite/token-1")}`);
-  expect(host.querySelector('a[href^="/sign-in"]')?.getAttribute("href")).toBe(
-    "/sign-in?next=%2Finvite%2Ftoken-1",
-  );
-});
-
-it("names a new account and keeps the email when going back from the code", async () => {
+it("collects no name on the email path and keeps the address going back from the code", async () => {
   vi.mocked(fetchAuthCapabilities).mockResolvedValue(codeCapabilities);
   vi.mocked(authClient.emailOtp.sendVerificationOtp).mockResolvedValue({
     data: { success: true },
@@ -278,8 +274,7 @@ it("names a new account and keeps the email when going back from the code", asyn
       error: { code: "INVALID_OTP", message: "Invalid OTP", status: 400, statusText: "" },
     } as never)
     .mockResolvedValueOnce({ data: {}, error: null } as never);
-  await render("up");
-  await enter(host.querySelector('input[name="name"]'), "Ada");
+  await render();
   await enter(host.querySelector('input[name="email"]'), "ada@example.com");
   await submit();
   await enter(host.querySelector('input[aria-label="Code"]'), "111111");
@@ -294,7 +289,6 @@ it("names a new account and keeps the email when going back from the code", asyn
   expect(authClient.signIn.emailOtp).toHaveBeenLastCalledWith({
     email: "ada@example.com",
     otp: "222222",
-    name: "Ada",
   });
   // The session refetch moves a signed-in user on; until then the form stays busy.
   expect(clearSpaceSelection).toHaveBeenCalled();
@@ -347,4 +341,27 @@ it("leaves the password form unchanged without email codes", async () => {
   expect(host.querySelector('input[type="password"]')).not.toBeNull();
   expect(host.querySelector<HTMLInputElement>('input[type="password"]')!.required).toBe(true);
   expect(host.querySelector('button[type="submit"]')!.textContent).toBe("Sign in");
+});
+
+const phoneCapabilities: AuthCapabilities = {
+  ...codeCapabilities,
+  phoneSignin: true,
+  whatsappChatUrl: "https://wa.me/15550001",
+};
+
+it("opens on the WhatsApp door and reaches the email form only by its link", async () => {
+  vi.mocked(fetchAuthCapabilities).mockResolvedValue(phoneCapabilities);
+  await render();
+  expect(button("door")).toBeDefined();
+  expect(host.textContent).toContain("Sign in with email");
+  expect(host.querySelector('input[type="email"]')).toBeNull();
+  await act(async () => button("Sign in with email")!.click());
+  expect(host.querySelector('input[name="email"]')).not.toBeNull();
+});
+
+it("moves to the portal when the door signs the person in", async () => {
+  vi.mocked(fetchAuthCapabilities).mockResolvedValue(phoneCapabilities);
+  await render();
+  await act(async () => button("door")!.click());
+  expect(clearSpaceSelection).toHaveBeenCalled();
 });

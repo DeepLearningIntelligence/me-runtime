@@ -12,7 +12,6 @@ import {
 import { Search, SlidersHorizontal } from "lucide-react";
 import type { ReactNode, UIEvent } from "react";
 import { useState } from "react";
-import { InviteDialog } from "../../components/InviteDialog";
 import { PasskeyOffer } from "../../components/PasskeyOffer";
 import { PlanUsageRows, useUsageHint } from "../../components/PlanUsage";
 import { SidebarFooter } from "../../components/SidebarFooter";
@@ -357,8 +356,6 @@ function ShellSidebarFooter({
       : null;
   const usage = useUsageHint();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const referral = billing?.referral;
   const [logOutError, setLogOutError] = useState<string | null>(null);
   const { signingOut, logOut } = useSignOut("/sign-in", (message) => {
     // A failed sign-out reloads the page: reopen the menu so its error shows.
@@ -421,6 +418,18 @@ function ShellSidebarFooter({
           closeMobileSidebar();
           navigate("/app/artifacts");
         }}
+        onVault={() => {
+          setMenuOpen(false);
+          openSettings("vault");
+        }}
+        onPeople={() => {
+          setMenuOpen(false);
+          openSettings("messaging");
+        }}
+        onInvites={() => {
+          setMenuOpen(false);
+          openSettings("invites");
+        }}
         onSettings={() => {
           setMenuOpen(false);
           openSettings("general");
@@ -431,14 +440,6 @@ function ShellSidebarFooter({
           setMenuOpen(false);
           openSettings("usage");
         }}
-        onInvite={
-          referral
-            ? () => {
-                setMenuOpen(false);
-                setInviteOpen(true);
-              }
-            : undefined
-        }
         onLogOut={() => {
           setLogOutError(null);
           void logOut();
@@ -453,9 +454,6 @@ function ShellSidebarFooter({
             void switchOrganization(userId, organization, openSpaceChat);
         }}
       />
-      {referral ? (
-        <InviteDialog referral={referral} open={inviteOpen} onOpenChange={setInviteOpen} />
-      ) : null}
     </>
   );
 }

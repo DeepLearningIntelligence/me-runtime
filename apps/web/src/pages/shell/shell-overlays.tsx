@@ -30,11 +30,6 @@ const PluginsOverlay = lazyOverlay(() =>
 const SkillsDialog = lazyOverlay(() =>
   import("../../components/integrations/skills-dialog").then((module) => module.SkillsDialog),
 );
-const BotTemplatesDialog = lazyOverlay(() =>
-  import("../../components/bot-templates/bot-templates-dialog").then(
-    (module) => module.BotTemplatesDialog,
-  ),
-);
 const McpServersOverlay = lazyOverlay(() =>
   import("../McpServersOverlay").then((module) => module.McpServersOverlay),
 );
@@ -57,16 +52,13 @@ export function AppOverlays({
   activeBotId,
   stdioEnabled,
   onConnectedAppsChange,
-  onOpenBot,
 }: {
   overlay: ShellOverlay;
   setOverlay: (next: ShellOverlay) => void;
   activeBotId: string | undefined;
   stdioEnabled: boolean;
   onConnectedAppsChange: (apps: ReturnType<typeof connectedAppMarks>) => void;
-  onOpenBot: (bot: Bot) => void;
 }) {
-  const openTemplates = () => setOverlay({ kind: "templates" });
   return (
     <>
       {overlay?.kind === "integrations" ? (
@@ -75,21 +67,9 @@ export function AppOverlays({
           activeBotId={activeBotId}
           onClose={() => setOverlay(null)}
           onOpenMcp={() => setOverlay({ kind: "mcp" })}
-          onOpenTemplates={openTemplates}
         />
       ) : null}
-      {overlay?.kind === "skills" ? (
-        <SkillsDialog onClose={() => setOverlay(null)} onOpenTemplates={openTemplates} />
-      ) : null}
-      {overlay?.kind === "templates" ? (
-        <BotTemplatesDialog
-          onClose={() => setOverlay(null)}
-          onOpenBot={(bot) => {
-            setOverlay(null);
-            onOpenBot(bot);
-          }}
-        />
-      ) : null}
+      {overlay?.kind === "skills" ? <SkillsDialog onClose={() => setOverlay(null)} /> : null}
       {overlay?.kind === "mcp" ? (
         <McpServersOverlay
           editServerId={overlay.serverId}

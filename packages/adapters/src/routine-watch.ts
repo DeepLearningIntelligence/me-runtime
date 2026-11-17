@@ -33,6 +33,7 @@ import { scheduleComputerSleep } from "./computer-idle.js";
 import { ComputerBusyError, provisionComputer } from "./computer-lifecycle.js";
 import { resolveBotWorkspaceCwd, teamBotWorkspaceDirectory } from "./computer-support.js";
 import { connectedContext, selectRunConnections } from "./connection-context.js";
+import { deploymentDenyRules } from "./me-action-policy.js";
 import { nativeShellCommandArgv, usesNativeShell } from "./native-shell.js";
 import { isEgressRefused } from "./network-address.js";
 import { loadPurchaseRedactions } from "./purchase-service.js";
@@ -712,10 +713,14 @@ async function readTool(
       ctx.connectedConnections?.map((row) => row.externalId),
     ),
     readOnly: declaredRead(resolved.tool),
-    rules: (await listApprovalRules(deps.prisma, {
-      userId: routine.userId,
-      spaceId: routine.spaceId,
-    })) as ActionApprovalRule[],
+    // The deployment's deny rules (me-action-policy) apply to watches too.
+    rules: [
+      ...deploymentDenyRules(),
+      ...((await listApprovalRules(deps.prisma, {
+        userId: routine.userId,
+        spaceId: routine.spaceId,
+      })) as ActionApprovalRule[]),
+    ],
   });
   if (refusal) throw new RoutineWatchError(refusal);
   let data: unknown;

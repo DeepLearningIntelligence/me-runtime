@@ -151,6 +151,7 @@ import { trackInFlightRequests } from "./in-flight-requests.js";
 import { mountLocalComputerHost } from "./local-settings.js";
 import { marketingEmailRoutes, sendWelcomeEmail } from "./marketing-email.js";
 import { moveMcpArgsIntoSecrets } from "./mcp-args-migration.js";
+import { ensureGfinConnection } from "./me/gfin/service.js";
 import { mountPhoneSigninRoutes } from "./me/phone-signin/routes.js";
 import { startMessagingRuntime } from "./messaging-runtime.js";
 import { monitoringRoutes } from "./monitoring.js";
@@ -501,6 +502,19 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
         onAccountChange: (change) => directoryChanges.getStore()?.push(change),
       })
     : undefined;
+  // The deployment's GFIN connection for every person, converged at workspace admission.
+  // Provisioning is off (named, once) until the house key or the provisioning endpoint is set.
+  const afterWorkspaceReady = env.gfin
+    ? async (user: { id: string }) => {
+        await ensureGfinConnection({ prisma, secrets, config: env.gfin }, user).catch((error) =>
+          getLogger().error("gfin connection provisioning failed", error),
+        );
+      }
+    : undefined;
+  if (!env.gfin)
+    getLogger().info(
+      "gfin connection provisioning is off: set ME_GFIN_HOUSE_KEY (or ME_GFIN_PROVISION_URL with ME_GFIN_PROVISION_TOKEN) to connect every person to Go Fund It Now",
+    );
   const auth = createAuth(prisma, {
     directoryProvisioning: Boolean(directory),
     analytics,
@@ -513,6 +527,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     signupsEnabled: env.signupsEnabled,
     signupAllowlist: env.signupAllowlist,
     singleAccount: Boolean(env.desktopStackToken),
+    afterWorkspaceReady,
     email,
     logger: authLibraryLogger("auth.request.failed"),
     onEmailError,
@@ -836,6 +851,15 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       passkeyRpId: auth.passkeyRpId,
       nativePasskeys: nativePasskeys(env, auth.passkeyRpId),
       crispWebsiteId: billing ? (env.crispWebsiteId ?? null) : null,
+      // The phone door (D-RUN-5) opens only when the identity hash key and the
+      // business line are both configured; the same pair `start` and the deep
+      // link builder refuse without.
+      phoneSignin: Boolean(env.meIdentityHashKey && env.whatsappBusinessNumber),
+      // The same wa.me shape the router's deep-link builder mints; callers
+      // append the message (`?text=`) themselves.
+      whatsappChatUrl: env.whatsappBusinessNumber
+        ? `https://wa.me/${env.whatsappBusinessNumber.replace(/\D/g, "")}`
+        : null,
     } satisfies AuthCapabilities);
   });
   mountAppAssociation(app, env);

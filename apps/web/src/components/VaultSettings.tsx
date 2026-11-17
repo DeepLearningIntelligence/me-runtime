@@ -17,6 +17,8 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { useSpaceQueries } from "../lib/query";
 import { useSpaceRpc } from "../lib/space-rpc";
 import { errorText } from "../lib/user-error";
+import { GfinVaultBlock } from "../me/gfin";
+import { OFFERED_VAULT_KINDS } from "../me/product";
 import { useIdentityConfirmation } from "./ConfirmIdentityDialog";
 import { BotEmailAddresses } from "./vault/BotEmailAddresses";
 import { useVaultKindLabels, useVaultSubtitle, VaultTile } from "./vault/kinds";
@@ -271,7 +273,7 @@ export function VaultSettings({
             <ChevronDown />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-44">
-            {VAULT_KINDS.map((kind) => (
+            {OFFERED_VAULT_KINDS.map((kind) => (
               <Fragment key={kind}>
                 {kind === "api_key" ? <DropdownMenuSeparator /> : null}
                 <DropdownMenuItem
@@ -286,6 +288,7 @@ export function VaultSettings({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      <GfinVaultBlock />
       {listQuery.isError ? (
         <p className="text-body-sm text-destructive">
           <Trans>Could not load credentials.</Trans>

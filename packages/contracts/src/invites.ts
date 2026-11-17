@@ -32,6 +32,8 @@ export const InviteInspectionSchema = z.discriminatedUnion("ok", [
   z.object({
     ok: z.literal(false),
     reason: InviteFailure,
+    /** The person-facing copy, owned by the invitations module's one message map. */
+    message: z.string(),
   }),
 ]);
 export type InviteInspection = z.infer<typeof InviteInspectionSchema>;

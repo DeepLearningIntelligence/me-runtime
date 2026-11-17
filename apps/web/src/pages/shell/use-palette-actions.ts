@@ -1,16 +1,5 @@
 import { useLingui } from "@lingui/react/macro";
-import {
-  Keyboard,
-  LayoutTemplate,
-  Lock,
-  Monitor,
-  Moon,
-  Plug,
-  Plus,
-  ScrollText,
-  Sun,
-  Users,
-} from "lucide-react";
+import { Keyboard, Lock, Monitor, Moon, Plug, Plus, ScrollText, Sun, Users } from "lucide-react";
 import type { AppearancePreference } from "../../lib/ui-appearance";
 import { getUiAppearancePreference, setUiAppearance } from "../../lib/ui-appearance";
 import { useSettingsNavItems } from "../settings-nav";
@@ -61,12 +50,6 @@ export function usePaletteActions({
       label: t`Connect apps`,
       icon: Plug,
       onSelect: () => setOverlay({ kind: "integrations" }),
-    },
-    {
-      id: "bot-templates",
-      label: t`Bot templates`,
-      icon: LayoutTemplate,
-      onSelect: () => setOverlay({ kind: "templates" }),
     },
     {
       id: "keyboard-shortcuts",

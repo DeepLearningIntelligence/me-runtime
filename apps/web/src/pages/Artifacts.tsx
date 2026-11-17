@@ -247,7 +247,7 @@ export function ArtifactsPage() {
             </Link>
           </IconTooltip>
           <h1 className="font-medium text-foreground">
-            <Trans>Artifacts</Trans>
+            <Trans>Files</Trans>
           </h1>
         </div>
         {showFilters ? (

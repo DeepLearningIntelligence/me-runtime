@@ -1,5 +1,6 @@
 import type {
   ApnsVoipConfig,
+  GfinConnectionConfig,
   PhotonProjectCredentials,
   TelegramBotCredentials,
 } from "@rakazo/adapters";
@@ -8,6 +9,7 @@ import {
   boatApiKeyFromEnv,
   boatApiUrlFromEnv,
   mcpStdioOptionsFromEnv,
+  parseGfinConnectionEnv,
   photonProjectsFromEnv,
   resolveCloudAgentProvider,
   resolveDeploymentModel,
@@ -74,6 +76,8 @@ export interface AppEnv {
   inviteAllocation: number;
   /** How many days a link lasts (ME_INVITE_TTL_DAYS). */
   inviteTtlDays: number;
+  /** The deployment's Go Fund It Now connection: house key or provisioning endpoint (ME_GFIN_*). */
+  gfin: GfinConnectionConfig | undefined;
   encryptionKey: string;
   contentEncryption: boolean;
   dataDir: string;
@@ -282,6 +286,7 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     signupAllowlist: source.SIGNUP_ALLOWLIST,
     modelPolicy: parseModelPolicy(source.ME_MODEL_POLICY),
     houseModelCredits: source.ME_HOUSE_CREDITS === "true",
+    gfin: parseGfinConnectionEnv(source),
     ...inviteSettings(source),
     encryptionKey: resolveEncryptionKey(source),
     contentEncryption: resolveContentEncryption(source),
