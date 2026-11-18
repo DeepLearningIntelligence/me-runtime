@@ -193,11 +193,14 @@ describePostgres("background video delivery (PostgreSQL)", () => {
         }),
       );
     // Nothing touched the job for a while, as when its scheduled poll was lost.
+    // The column is a naive timestamp holding a UTC instant: now() at the session's
+    // TimeZone would store a wall clock up to half a day ahead of it, and the job
+    // would read as fresh. Convert the clock to the column's UTC convention.
     const stall = (jobId: string) =>
       runAsSystem(
         "test fixture",
         () =>
-          prisma.$executeRaw`UPDATE external_effects SET "updatedAt" = now() - interval '15 minutes' WHERE id = ${jobId}`,
+          prisma.$executeRaw`UPDATE external_effects SET "updatedAt" = (now() AT TIME ZONE 'UTC') - interval '15 minutes' WHERE id = ${jobId}`,
       );
     const recovered = () => enqueued.map((job) => (job.payload as { jobId?: string }).jobId);
     return {
