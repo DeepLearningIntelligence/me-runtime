@@ -32,12 +32,27 @@ dbTests("concurrent redeem of one invite token", () => {
         emailVerified: true,
       },
     });
+    // The claim records the redeemer in a real foreign key (the phone door
+    // creates the person in the same transaction), so the racers must be
+    // existing accounts for the race to reach the compare-and-swap at all.
+    await prisma.user.createMany({
+      data: [`first-${stamp}`, `second-${stamp}`].map((id) => ({
+        id,
+        name: id,
+        email: `${id}@rakazo.test`,
+        emailVerified: true,
+      })),
+    });
     token = (
       await issueInvite(prisma, { inviterUserId: inviterId, allocation: 10, ttlDays: 14 })
     ).token;
   });
 
   afterAll(async () => {
+    // Redeemer rows are not the inviter's cascade; remove them explicitly.
+    await prisma.user.deleteMany({
+      where: { id: { in: [`first-${stamp}`, `second-${stamp}`] } },
+    });
     await prisma.user.deleteMany({ where: { id: inviterId } });
     await db.prisma.$disconnect();
     await db.pool.end();
