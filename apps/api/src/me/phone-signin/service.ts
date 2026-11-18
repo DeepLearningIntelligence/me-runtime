@@ -98,14 +98,11 @@ export type InboundOutcome =
   | { reply: string }
   | {
       reply: null;
-      reason:
-        | "replayed"
-        | "identity_key_missing"
-        | "nonce_unknown"
-        | "code_expired"
-        | "already_bound"
-        | "phone_mismatch";
+      reason: "replayed" | "identity_key_missing" | "already_bound" | "phone_mismatch";
     };
+
+/** The one answer a dead or unknown door gets; it never names which. */
+export const EXPIRED_CODE_REPLY = "That code has expired. Open the sign-in page again and use the new link.";
 
 export type VerifiedPhone = {
   /** The bound phone's HMAC; the caller turns it into a person and a session. */
@@ -187,7 +184,9 @@ export async function start(
  * One inbound message, routed here only when it might be sign-in. The provider
  * message id is claimed inside the same transaction as the bind, so Meta's
  * retries land on an already-claimed message instead of minting a second code.
- * An outcome without a reply is still a processed message: its claim stands.
+ * An outcome without a reply is still a processed message: its claim stands. A
+ * dead door (an unknown or expired nonce) still gets one answer, worded the
+ * same for both, so the sender learns nothing more than "that code is dead".
  */
 export async function handleInbound(
   prisma: PrismaClient,
@@ -220,9 +219,13 @@ export async function handleInbound(
       }
 
       const row = await tx.mePhoneSignin.findUnique({ where: { nonceHash } });
-      if (!row) return { reply: null, reason: "nonce_unknown" };
+      // An unknown nonce and an expired one get the same answer, so a sender
+      // learns nothing beyond "that code is dead" (F4): the reply text carries
+      // no difference between the two, and the claim above makes a replayed
+      // message id silent.
+      if (!row) return { reply: EXPIRED_CODE_REPLY };
       if (row.boundAt) return { reply: null, reason: "already_bound" };
-      if (row.expiresAt.getTime() <= now) return { reply: null, reason: "code_expired" };
+      if (row.expiresAt.getTime() <= now) return { reply: EXPIRED_CODE_REPLY };
       // A door opened for one phone refuses a different sender; the row keeps
       // the phone hash it was opened with, so the code can only ever belong to
       // that phone.
