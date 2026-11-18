@@ -329,7 +329,7 @@ describePostgres("moving routines with the account timezone (PostgreSQL)", () =>
     // A wakeup claim holds the routine row and advances its pending occurrence while
     // the zone save is between its read and its write. The claim runs as the job
     // system would, on the runtime login.
-    const claimed = new Date("2026-11-16T07:00:00.000Z"); // next Monday 09:00 Cairo
+    const claimed = new Date("2026-11-16T07:00:00.000Z"); // Monday 09:00 Cairo, the week after the pending one
     await runAsSystem("routine claim barrier", async () => {
       const ops = started();
       const client = await app.pool.connect();
@@ -342,9 +342,12 @@ describePostgres("moving routines with the account timezone (PostgreSQL)", () =>
         const moving = ops.track(save(userId, "Europe/London", spaces[0]!));
         // Only once the save provably waits on the claimed row does the claim advance it.
         await waitForBlockedOn(monitor, own[0]!.pid, "the zone save", deadline);
+        // The column holds the UTC wall clock, as every Prisma write stores it. A
+        // raw pg Date parameter serializes as the local wall clock with an offset
+        // Postgres ignores on a naive column, so pass the ISO string instead.
         await client.query('UPDATE routines SET "nextRunAt" = $2 WHERE id = $1', [
           routine.id,
-          claimed,
+          claimed.toISOString(),
         ]);
         await client.query("COMMIT");
         await moving;
