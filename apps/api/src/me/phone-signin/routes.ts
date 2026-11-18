@@ -97,28 +97,28 @@ export function mountPhoneSigninRoutes(
     const nonce = typeof parsed.nonce === "string" ? parsed.nonce : undefined;
     const code = typeof parsed.code === "string" ? parsed.code : undefined;
     if (!nonce || !code) return refusal(c, "invalid_input", 400);
-    const link = parsed.link === true;
-    // A signed-out caller is refused before the code is even looked at.
-    let linkUserId: string | undefined;
-    if (link) {
-      linkUserId = await sessionUserId(deps, c);
-      if (!linkUserId) return refusal(c, "unauthorized", 401);
-    }
     try {
+      // The row decides the mode, never the request: only the door's opener may
+      // complete a link, and a sign-in door never links, so a `link` flag on a
+      // plain door is refused before anything is attached.
       const verified = await verify(deps.prisma, config, { nonce, code });
-      if (link) {
+      if (verified.linkUserId) {
+        const userId = await sessionUserId(deps, c);
+        // The refusal leaves the code unconsumed: no redemption has run.
+        if (!userId) return refusal(c, "unauthorized", 401);
         // A signed-in person attaches the verified phone to their own account
         // instead of creating one; the door's invite hash plays no part here,
         // and a link door redeems only for the person who opened it.
         await linkVerifiedPhone(
           deps.prisma,
           verified.phoneHash,
-          linkUserId!,
+          userId,
           verified.linkUserId,
           verified.redeem,
         );
         return c.json({ ok: true, linked: true });
       }
+      if (parsed.link === true) return refusal(c, "link_not_started", 400);
       const person = await signInVerifiedPhone(
         deps.prisma,
         deps.auth,
