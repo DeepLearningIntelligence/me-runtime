@@ -79,7 +79,11 @@ export class PrismaPushTokenStore implements PushTokenStore {
             await advisoryLock(tx, "push-voip", credentialDigest(registration.voipToken), "joined");
           const sessions = await tx.$queryRaw<
             Array<{ id: string }>
-          >`SELECT id FROM "session" WHERE id = ${sessionId} AND "userId" = ${userId} AND "expiresAt" > CURRENT_TIMESTAMP FOR UPDATE`;
+            // The column is a naive timestamp holding a UTC instant, so compare
+            // against the UTC wall clock: bare CURRENT_TIMESTAMP is reinterpreted
+            // in the session's TimeZone, which expired every registration on a
+            // server whose zone is ahead of UTC.
+          >`SELECT id FROM "session" WHERE id = ${sessionId} AND "userId" = ${userId} AND "expiresAt" > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') FOR UPDATE`;
           if (!sessions.length) throw new PushSessionEndedError();
           const existing = await tx.callPushDevice.findUnique({ where: { id } });
           const previous =
@@ -267,7 +271,7 @@ export class PrismaPushTokenStore implements PushTokenStore {
           // after sign-out cannot publish a token, even when its request authenticated earlier.
           const sessions = await tx.$queryRaw<Array<{ id: string }>>`
           SELECT id FROM "session" WHERE id = ${sessionId} AND "userId" = ${userId}
-          AND "expiresAt" > CURRENT_TIMESTAMP FOR UPDATE`;
+          AND "expiresAt" > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') FOR UPDATE`;
           if (!sessions.length) throw new PushSessionEndedError();
           const data = {
             ciphertext: sealed.ciphertext,
