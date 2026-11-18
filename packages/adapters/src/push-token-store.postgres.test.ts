@@ -149,6 +149,22 @@ suite("database push registrations", () => {
     expect((await api.load(user("a")))?.token).toBe(token("shared"));
   });
 
+  it("registers a fresh session on a database whose TimeZone is ahead of UTC", async () => {
+    // The registration query compares a naive timestamp column to the clock.
+    // Postgres reinterprets a naive value in the session's TimeZone, so a
+    // connection pinned to UTC+14 is the worst case this can run against.
+    const url = new URL(process.env.DATABASE_URL!);
+    url.searchParams.set("options", "-c timezone=Pacific/Kiritimati");
+    const shifted = createDb(url.href);
+    try {
+      const shiftedStore = new PrismaPushTokenStore(shifted.prisma, "offline-push-encryption-key");
+      await shiftedStore.save(user("a"), token("timezone"), session("a"));
+      expect((await api.load(user("a")))?.token).toBe(token("timezone"));
+    } finally {
+      await shifted.pool.end();
+    }
+  });
+
   it("does not publish a registration after a concurrent session deletion commits", async () => {
     let release!: () => void;
     let locked!: () => void;
