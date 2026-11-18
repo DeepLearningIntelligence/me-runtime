@@ -2817,6 +2817,11 @@ model MePhoneSignin {
   /// null for a sign-in door. At verify, a link door redeems for this person
   /// and nobody else: the row is the authority, not the request.
   linkUserId String?
+  /// The WhatsApp address that bound the nonce, sealed as the secret store
+  /// seals secrets (`v2:` ciphertext, AAD bound to this row id). Set when the
+  /// `ME-` message binds, cleared when the code is consumed, dead with the
+  /// nonce's expiry; never logged and never sent to the browser.
+  senderAddress String?
   /// When the nonce was bound to a phone; a bound row never binds again.
   boundAt   DateTime?
   /// Set when the code verifies, so a code is redeemed once.
