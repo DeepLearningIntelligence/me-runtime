@@ -2580,7 +2580,9 @@ model ModelCreditEntry {
 
 /// Immutable financial journal. Deliberately no lifecycle foreign keys.
 model BillingAuditEvent {
-  id                String   @id @default(cuid())
+  /// The database generates uuid ids (the four billing audit trigger functions
+  /// insert without one); rows written through the client get the same shape.
+  id                String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   source            String   @unique
   kind              String
   organizationId    String?
