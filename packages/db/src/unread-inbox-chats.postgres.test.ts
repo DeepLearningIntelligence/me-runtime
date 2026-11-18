@@ -173,4 +173,36 @@ describePostgres("unread inbox chat count (PostgreSQL)", () => {
     });
     await expect(countUnreadInboxChats(prisma, { spaceId, userId })).resolves.toBe(8);
   });
+
+  it("keeps a snoozed chat out of the count on a database whose TimeZone is ahead of UTC", async () => {
+    // The count compares the naive snoozedUntil column to the clock. Postgres
+    // reinterprets a naive value in the session's TimeZone, so a connection pinned
+    // to UTC+14 is the worst case this can run against: there a still-snoozed chat
+    // must not count, and one whose snooze has passed must.
+    const url = new URL(databaseUrl!);
+    url.searchParams.set("options", "-c timezone=Pacific/Kiritimati");
+    const shifted = createDb(url.href);
+    try {
+      const counted = (client: PrismaClient) =>
+        runAsTenant({ spaceId: spaceIds[0]!, userId }, () =>
+          countUnreadInboxChats(client, { spaceId: spaceIds[0]!, userId }),
+        );
+      const before = await counted(shifted.prisma);
+      const snoozed = await bot(spaceIds[0]!);
+      await asSystem(prisma).threadRead.update({
+        where: { threadId_userId: { threadId: snoozed.thread!.id, userId } },
+        data: { snoozedUntil: new Date(Date.now() + 60 * 60 * 1000) },
+      });
+      const woken = await bot(spaceIds[0]!);
+      await asSystem(prisma).threadRead.update({
+        where: { threadId_userId: { threadId: woken.thread!.id, userId } },
+        data: { snoozedUntil: new Date(Date.now() - 1000) },
+      });
+      // Only the woken one joins the inbox; the future snooze stays out everywhere.
+      await expect(counted(shifted.prisma)).resolves.toBe(before + 1);
+      await expect(counted(prisma)).resolves.toBe(before + 1);
+    } finally {
+      await shifted.pool.end();
+    }
+  });
 });

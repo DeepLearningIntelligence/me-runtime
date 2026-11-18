@@ -28,7 +28,10 @@ export function countUnreadInboxChats(
       JOIN thread_reads r ON r."threadId" = t.id AND r."userId" = ${userId}
       WHERE r.unread
         -- A snoozed chat leaves the inbox until it wakes, so it doesn't count either.
-        AND (r."snoozedUntil" IS NULL OR r."snoozedUntil" <= now())
+        -- The column is a naive timestamp holding a UTC instant; bare now() would be
+        -- reinterpreted in the session's TimeZone, waking every snooze early on a
+        -- server whose zone is ahead of UTC.
+        AND (r."snoozedUntil" IS NULL OR r."snoozedUntil" <= (now() AT TIME ZONE 'UTC'))
         AND t."externalConversationId" IS NULL
         AND (
           EXISTS (SELECT 1 FROM bots b WHERE b.id = t."botId"
