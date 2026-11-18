@@ -225,11 +225,6 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
     Boolean(
       await prisma.scimUser.findFirst({ where: { userId, active: true }, select: { id: true } }),
     );
-  /**
-   * The directory created this account and nobody has signed in to it yet. Every first
-   * sign-in, by any method, gives the account its workspace, so one without a workspace has
-   * never been used. Its first SSO sign-in with the same verified email claims it.
-   */
   // SSO-only deployments keep every email credential closed, codes included.
   const emailCodeSignIn = Boolean(env.email) && env.passwordAuth !== false;
   // SSO-only deployments keep the identity provider as the only way in.
