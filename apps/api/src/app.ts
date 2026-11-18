@@ -911,7 +911,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   }
   // The phone door answers before the auth library sees the request; it runs in
   // the system context above, like every other authentication path.
-  mountPhoneSigninRoutes(app, { prisma, auth, env, clientIp: requestClientIp });
+  mountPhoneSigninRoutes(app, { prisma, auth, env, clientIp: requestClientIp, jobs });
   if (directory) {
     app.on(["GET", "POST", "PUT", "PATCH", "DELETE"], "/api/auth/scim/v2/*", async (c) => {
       const changes: DirectoryAccountChange[] = [];

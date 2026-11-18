@@ -1,10 +1,21 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { JobPublisher } from "@rakazo/adapter-kit";
+import { messagingDeliverJob } from "@rakazo/adapter-kit";
 import type { Auth } from "@rakazo/auth";
 import { CLIENT_IP_HEADER } from "@rakazo/auth";
+import { BOT_COLOR_LIST } from "@rakazo/contracts";
 import type { Prisma, PrismaClient, SignupPolicyEnv } from "@rakazo/db";
-import { bootstrapUserSpace, isUniqueViolation, runAsSystem } from "@rakazo/db";
+import {
+  attachMessagingIdentity,
+  bootstrapUserSpace,
+  createRepos,
+  isUniqueViolation,
+  runAsSystem,
+} from "@rakazo/db";
+import { getLogger } from "@rakazo/logging";
 import { redeemInviteByHash } from "../invitations/invitations.js";
-import { PhoneSigninError } from "./service.js";
+import { sha256Hex } from "./codes.js";
+import { PhoneSigninError, PROVIDER } from "./service.js";
 
 /** The undeliverable email domain a phone-created person carries until onboarding connects one. */
 export const PHONE_EMAIL_DOMAIN = "phone.invalid";
@@ -186,5 +197,192 @@ export async function linkVerifiedPhone(
     // backstop, and the loser is refused by name.
     if (isUniqueViolation(error)) throw new PhoneSigninError("already_bound");
     throw error;
+  }
+}
+
+/** What a successful sign-in says about the sender's WhatsApp link. */
+export type WhatsappLinkState =
+  | "linked"
+  | "already_linked"
+  | "linked_elsewhere"
+  | "agent_has_other_number"
+  | "not_attempted";
+
+export type WhatsappLinkDeps = {
+  prisma: PrismaClient;
+  /** The deliver job for the welcome message runs on the one worker. */
+  jobs: Pick<JobPublisher, "enqueue">;
+  env: SignupPolicyEnv;
+};
+
+/**
+ * The first agent's defaults, the same values onboarding's first-bot step
+ * creates with: the portal's opening bot, pinned color and idempotent spawn key.
+ */
+const FIRST_AGENT = {
+  name: "Chief",
+  description: "",
+  instructions: "",
+  notifyOnFinish: true,
+  color: BOT_COLOR_LIST.find((color) => color.id === "orange")!.hex,
+  spawnKey: "onboarding:first",
+} as const;
+
+const WELCOME_BODY = "You're connected. Message me here any time.";
+
+/**
+ * Makes the number that just signed in the chat address of the person's
+ * default agent (ME-RUN-005). The default agent is the oldest non-archived
+ * bot they own in their first space, created with the first agent's defaults
+ * when they have none. The link never moves an address another person holds
+ * and never overwrites an agent that already chats elsewhere; every state is
+ * returned by name, nothing here can fail the sign-in itself.
+ *
+ * Idempotent per door: the welcome message's outbox key carries the nonce's
+ * hash, so a replayed delivery or a second verify queues one message at most.
+ */
+export async function attachWhatsappAfterSignin(
+  deps: WhatsappLinkDeps,
+  input: { userId: string; address: string; nonce: string },
+): Promise<WhatsappLinkState> {
+  try {
+    return await attachWhatsapp(deps, input);
+  } catch (error) {
+    getLogger().error("whatsapp auto-link failed; sign-in continues", error, {
+      "user.id": input.userId,
+    });
+    return "not_attempted";
+  }
+}
+
+async function attachWhatsapp(
+  deps: WhatsappLinkDeps,
+  input: { userId: string; address: string; nonce: string },
+): Promise<WhatsappLinkState> {
+  const { prisma } = deps;
+  const membership = await prisma.spaceMember.findFirst({
+    where: { userId: input.userId, space: { deletingAt: null } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { spaceId: true },
+  });
+  if (!membership) {
+    getLogger().warn("whatsapp auto-link skipped", { reason: "no space", "user.id": input.userId });
+    return "not_attempted";
+  }
+  let bot = await prisma.bot.findFirst({
+    where: { spaceId: membership.spaceId, userId: input.userId, archivedAt: null },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true },
+  });
+  if (!bot) {
+    const person = await prisma.user.findUnique({
+      where: { id: input.userId },
+      select: { email: true },
+    });
+    if (!person) {
+      getLogger().warn("whatsapp auto-link skipped", {
+        reason: "person missing",
+        "user.id": input.userId,
+      });
+      return "not_attempted";
+    }
+    bot = await createRepos(prisma).createBot(
+      {
+        userId: input.userId,
+        spaceId: membership.spaceId,
+        email: person.email,
+        isDeploymentOwner: false,
+      },
+      { ...FIRST_AGENT },
+    );
+  }
+  const where = { provider_address: { provider: PROVIDER, address: input.address } } as const;
+  // An address this person already linked stays exactly as it is, thread
+  // included; only a fresh address reaches the attach below.
+  const existing = await prisma.messagingIdentity.findUnique({
+    where,
+    select: { userId: true },
+  });
+  if (existing) {
+    if (existing.userId !== input.userId) {
+      getLogger().warn("whatsapp number already chats with another account", {
+        "user.id": input.userId,
+      });
+      return "linked_elsewhere";
+    }
+    return "already_linked";
+  }
+  const welcomeKey = `signin-welcome:${sha256Hex(input.nonce)}`;
+  const state = await attachInTransaction(prisma, {
+    provider: PROVIDER,
+    address: input.address,
+    userId: input.userId,
+    spaceId: membership.spaceId,
+    botId: bot.id,
+    welcomeKey,
+  });
+  // Only a fresh link queued the welcome; the deliver job carries it out.
+  if (state === "linked") {
+    await deps.jobs.enqueue(messagingDeliverJob()).catch((error) => {
+      getLogger().error("whatsapp welcome enqueue error", error);
+    });
+  }
+  return state;
+}
+
+/**
+ * Runs the attach and its welcome row in one transaction, then settles a lost
+ * unique-constraint race outside it: Postgres aborts the transaction on the
+ * failed statement, so the winner is re-read fresh. The loser never moves
+ * anything: an address another person won is theirs, and a bot that already
+ * chats elsewhere keeps its number.
+ */
+async function attachInTransaction(
+  prisma: PrismaClient,
+  request: {
+    provider: string;
+    address: string;
+    userId: string;
+    spaceId: string;
+    botId: string;
+    welcomeKey: string;
+  },
+): Promise<WhatsappLinkState> {
+  try {
+    const outcome = await prisma.$transaction(async (tx) => {
+      const attach = await attachMessagingIdentity(tx, request);
+      if (attach.outcome === "created") {
+        // In the same transaction as the identity write, so a rolled-back link
+        // leaves no welcome behind; the key makes a replay queue nothing more.
+        await tx.messagingOutbound.createMany({
+          data: [
+            {
+              idempotencyKey: request.welcomeKey,
+              kind: "dm",
+              identityId: attach.identityId,
+              body: WELCOME_BODY,
+            },
+          ],
+          skipDuplicates: true,
+        });
+      }
+      return attach.outcome;
+    });
+    return outcome === "created" ? "linked" : "already_linked";
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    const winner = await prisma.messagingIdentity.findUnique({
+      where: { provider_address: { provider: request.provider, address: request.address } },
+      select: { userId: true, botId: true },
+    });
+    if (winner && winner.userId !== request.userId) {
+      getLogger().warn("whatsapp number already chats with another account", {
+        "user.id": request.userId,
+      });
+      return "linked_elsewhere";
+    }
+    if (winner && winner.botId === request.botId) return "already_linked";
+    // No winner on the address: the bot's one-identity rule refused the write.
+    return "agent_has_other_number";
   }
 }

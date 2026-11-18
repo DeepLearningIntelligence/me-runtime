@@ -1,3 +1,4 @@
+import type { JobPublisher } from "@rakazo/adapter-kit";
 import type { Auth } from "@rakazo/auth";
 import type { PrismaClient } from "@rakazo/db";
 import type { Context, Hono } from "hono";
@@ -8,7 +9,8 @@ import { InviteError } from "../invitations/invitations.js";
 import { whatsAppDeepLink } from "../whatsapp-router.js";
 import { CODE_TTL_MS } from "./codes.js";
 import { PhoneSigninError, start, verify } from "./service.js";
-import { linkVerifiedPhone, signInVerifiedPhone } from "./session.js";
+import type { WhatsappLinkState } from "./session.js";
+import { attachWhatsappAfterSignin, linkVerifiedPhone, signInVerifiedPhone } from "./session.js";
 
 /**
  * The phone door's HTTP half, mounted beside the auth routes so a person signs
@@ -45,9 +47,14 @@ export function mountPhoneSigninRoutes(
     auth: Auth;
     env: AppEnv;
     clientIp: (c: Context) => string | undefined;
+    /** The worker's job publisher; the welcome message needs one deliver job. */
+    jobs: Pick<JobPublisher, "enqueue">;
   },
 ) {
-  const config = { identityHashKey: deps.env.meIdentityHashKey };
+  const config = {
+    identityHashKey: deps.env.meIdentityHashKey,
+    encryptionKey: deps.env.encryptionKey,
+  };
 
   app.post("/api/auth/phone/start", async (c) => {
     // The link must be deliverable before any row exists.
@@ -116,7 +123,8 @@ export function mountPhoneSigninRoutes(
           verified.linkUserId,
           verified.redeem,
         );
-        return c.json({ ok: true, linked: true });
+        const whatsapp = await linkWhatsapp(deps, verified.senderAddress, userId, nonce);
+        return c.json({ ok: true, linked: true, whatsapp });
       }
       if (parsed.link === true) return refusal(c, "link_not_started", 400);
       const person = await signInVerifiedPhone(
@@ -132,18 +140,43 @@ export function mountPhoneSigninRoutes(
         verified.redeem,
       );
       await setSessionCookie(c, deps.auth, person.token, person.expiresAt);
-      return c.json({ ok: true });
+      // The number that just signed in becomes the default agent's chat
+      // address before the response lands, so the first WhatsApp message
+      // afterwards just works. A link failure never fails the sign-in: the
+      // named state travels instead.
+      const whatsapp = await linkWhatsapp(deps, verified.senderAddress, person.userId, nonce);
+      return c.json({ ok: true, whatsapp });
     } catch (error) {
       return refused(c, error);
     }
   });
 }
 
+/**
+ * The post-sign-in WhatsApp link, for a sign-in or a signed-in link alike.
+ * Runs only on a verified door: the sender address comes from the row the
+ * `ME-` message bound and is cleared by the code's consume, so a consumed or
+ * expired door carries nothing to link.
+ */
+async function linkWhatsapp(
+  deps: {
+    prisma: PrismaClient;
+    env: AppEnv;
+    jobs: Pick<JobPublisher, "enqueue">;
+  },
+  address: string | null,
+  userId: string,
+  nonce: string,
+): Promise<WhatsappLinkState> {
+  if (!address) return "not_attempted";
+  return await attachWhatsappAfterSignin(
+    { prisma: deps.prisma, jobs: deps.jobs, env: deps.env },
+    { userId, address, nonce },
+  );
+}
+
 /** The signed-in person of the request, or null; only the link flow needs one. */
-async function sessionUserId(
-  deps: { auth: Auth },
-  c: Context,
-): Promise<string | undefined> {
+async function sessionUserId(deps: { auth: Auth }, c: Context): Promise<string | undefined> {
   const session = await deps.auth.api.getSession({ headers: c.req.raw.headers });
   return session?.user.id;
 }
