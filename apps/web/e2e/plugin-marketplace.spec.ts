@@ -34,7 +34,7 @@ test("Integrations installs a plugin, completes real broker OAuth against a fake
     return route.fulfill({ status: 302, headers: { location: redirect.toString() } });
   });
 
-  await page.getByRole("button", { name: "Connect apps", exact: true }).click();
+  await page.getByRole("button", { name: "Connect tools", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Integrations", exact: true });
   const section = dialog.getByTestId("plugin-section").filter({ hasText: "Productivity" });
   await expect(section.getByText("Planning Notes", { exact: true })).toBeVisible();
@@ -105,7 +105,7 @@ test("Integrations installs a plugin, completes real broker OAuth against a fake
 
   await dialog.getByRole("button", { name: "Close integrations", exact: true }).click();
   await page.reload();
-  await page.getByRole("button", { name: "Connect apps", exact: true }).click();
+  await page.getByRole("button", { name: "Connect tools", exact: true }).click();
   await dialog.getByRole("button", { name: /^\d+ connected$/ }).click();
   const apps = dialog.getByTestId("connected-apps").getByTestId("installed-plugin");
   await expect(apps).toContainText("Planning Notes");
@@ -136,7 +136,7 @@ test("shows directly registered MCP servers in Integrations without catalog conn
   await completeOnboarding(page);
   await page.goto("/app");
   await page.waitForURL(/\/app\/[^/]+$/);
-  await page.getByRole("button", { name: "Connect apps", exact: true }).click();
+  await page.getByRole("button", { name: "Connect tools", exact: true }).click();
   await openIntegrationsAdd(page, "Manage MCP servers");
   await expect(page.getByRole("textbox", { name: "Server name", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Close MCP servers", exact: true }).click();
@@ -210,7 +210,7 @@ test("shows directly registered MCP servers in Integrations without catalog conn
     );
     await route.fulfill({ response, json: { ...body, json: [...body.json, ...plugins] } });
   });
-  await page.getByRole("button", { name: "Connect apps", exact: true }).click();
+  await page.getByRole("button", { name: "Connect tools", exact: true }).click();
   // Of six saved servers and three plugins, only Dropbox is connected: Docs has a failing
   // server. The plugin rows show once installs have loaded, so the count is read after that.
   await page.getByRole("button", { name: /^\d+ connected$/ }).click();
@@ -263,14 +263,14 @@ test("shows directly registered MCP servers in Integrations without catalog conn
   phase = "all";
   await page.getByRole("button", { name: "Close MCP servers", exact: true }).click();
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.getByRole("button", { name: "Connect apps", exact: true }).click();
+  await page.getByRole("button", { name: "Connect tools", exact: true }).click();
   await expect(page.getByRole("button", { name: "2 connected", exact: true })).toBeVisible();
   await expect(marks("2 connected")).toHaveText("D");
   await page.getByRole("button", { name: "Close integrations", exact: true }).click();
 
   // With nothing connected, the count still opens the saved apps.
   phase = "down";
-  await page.getByRole("button", { name: "Connect apps", exact: true }).click();
+  await page.getByRole("button", { name: "Connect tools", exact: true }).click();
   await expect(marks("0 connected")).toHaveText("");
   await page.getByRole("button", { name: "0 connected", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Your apps", exact: true })).toBeVisible();
