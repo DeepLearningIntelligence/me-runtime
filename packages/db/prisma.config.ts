@@ -21,5 +21,6 @@ export default defineConfig({
       process.env.DATABASE_MIGRATION_URL ||
       process.env.DATABASE_URL ||
       "postgres://rakazo:rakazo@127.0.0.1:5433/rakazo",
+    shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL || undefined,
   },
 });

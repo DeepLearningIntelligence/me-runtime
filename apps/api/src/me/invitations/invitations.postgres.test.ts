@@ -1,4 +1,3 @@
-import { BillingEmulator } from "@rakazo/adapters";
 import type { PrismaClient } from "@rakazo/db";
 import { asSystem, createDb } from "@rakazo/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -11,8 +10,7 @@ import { issueInvite, redeemInvite } from "./invitations.js";
  * suite's interleaved racer test and the two mutations on the predicates.
  */
 
-const dbTests =
-  process.env.VERIFY_DATABASE && process.env.DATABASE_URL ? describe : describe.skip;
+const dbTests = process.env.VERIFY_DATABASE && process.env.DATABASE_URL ? describe : describe.skip;
 
 dbTests("concurrent redeem of one invite token", () => {
   const stamp = `${process.pid}-${Date.now()}`;
@@ -32,12 +30,26 @@ dbTests("concurrent redeem of one invite token", () => {
         emailVerified: true,
       },
     });
-    token = (
-      await issueInvite(prisma, { inviterUserId: inviterId, allocation: 10, ttlDays: 14 })
-    ).token;
+    // The claim records the redeemer in a real foreign key (the phone door
+    // creates the person in the same transaction), so the racers must be
+    // existing accounts for the race to reach the compare-and-swap at all.
+    await prisma.user.createMany({
+      data: [`first-${stamp}`, `second-${stamp}`].map((id) => ({
+        id,
+        name: id,
+        email: `${id}@rakazo.test`,
+        emailVerified: true,
+      })),
+    });
+    token = (await issueInvite(prisma, { inviterUserId: inviterId, allocation: 10, ttlDays: 14 }))
+      .token;
   });
 
   afterAll(async () => {
+    // Redeemer rows are not the inviter's cascade; remove them explicitly.
+    await prisma.user.deleteMany({
+      where: { id: { in: [`first-${stamp}`, `second-${stamp}`] } },
+    });
     await prisma.user.deleteMany({ where: { id: inviterId } });
     await db.prisma.$disconnect();
     await db.pool.end();
