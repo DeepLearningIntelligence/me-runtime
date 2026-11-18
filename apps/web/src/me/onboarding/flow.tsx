@@ -10,6 +10,7 @@ import { rpc } from "../../lib/rpc";
 import { errorText } from "../../lib/user-error";
 import { submitClass } from "../../pages/Auth";
 import { ensureFirstBot } from "../../pages/onboarding/first-bot";
+import { BRAND_NAME } from "../brand";
 import { startedFromInvite } from "./entry";
 
 /**
@@ -86,7 +87,7 @@ export function MeOnboardingPage() {
         ) : step === "email" ? (
           <Trans>Add your email</Trans>
         ) : step === "whatsapp" ? (
-          <Trans>Where will you use me.io?</Trans>
+          <Trans>Where will you use {BRAND_NAME}?</Trans>
         ) : step === "link" ? (
           <Trans>Connect WhatsApp</Trans>
         ) : step === "meter" ? (
@@ -139,9 +140,9 @@ function OnboardingFrame({
     <div className="flex min-h-full flex-col items-center bg-background px-6 py-12 text-foreground">
       <div className="flex w-full max-w-[460px] flex-col items-center" aria-busy={busy}>
         <img
-          src="/brand/me-mark.png"
-          alt=""
-          className="h-[74px] w-[74px] rounded-full bg-muted object-contain p-2"
+          src="/brand/me-go-fund-it-now.png"
+          alt={BRAND_NAME}
+          className="h-auto w-[300px] max-w-full object-contain"
         />
         <h1
           aria-live="polite"

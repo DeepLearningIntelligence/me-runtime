@@ -6,6 +6,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { rpc } from "../../lib/rpc";
 import { errorText } from "../../lib/user-error";
 import { AuthFrame, submitClass } from "../../pages/Auth";
+import { BRAND_NAME } from "../brand";
 import { rememberInviteEntry } from "./entry";
 
 type Welcome =
@@ -57,9 +58,11 @@ export function WelcomePage() {
       onSubmit={(event) => event.preventDefault()}
       title={
         welcome.kind === "ready" ? (
-          <Trans>{welcome.inviterName} invited you to me.io</Trans>
+          <Trans>
+            {welcome.inviterName} invited you to {BRAND_NAME}
+          </Trans>
         ) : (
-          <Trans>Welcome to me.io</Trans>
+          <Trans>Welcome to {BRAND_NAME}</Trans>
         )
       }
     >

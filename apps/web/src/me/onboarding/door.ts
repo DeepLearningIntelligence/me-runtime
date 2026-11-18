@@ -1,4 +1,5 @@
 import { t } from "@lingui/core/macro";
+import { BRAND_NAME } from "../brand";
 
 /**
  * The browser half of the phone door (D-RUN-5). The browser keeps the nonce it
@@ -81,7 +82,7 @@ export function verifyPhoneDoor(input: { nonce: string; code: string }): Promise
 export function doorFailureText(error: unknown): string {
   const reason = error instanceof DoorError ? error.reason : "unreachable";
   const copy: Record<DoorFailureReason | "unreachable", string> = {
-    invite_required: t`me.io is invite-only right now. Ask the person who invited you for a link, then open it here.`,
+    invite_required: t`${BRAND_NAME} is invite-only right now. Ask the person who invited you for a link, then open it here.`,
     invite_invalid: t`That invite link cannot be used. Ask for a fresh one.`,
     rate_limited: t`Too many attempts from this network. Try again in about 15 minutes.`,
     code_expired: t`This sign-in expired. Start again.`,

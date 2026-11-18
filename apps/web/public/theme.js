@@ -1,10 +1,12 @@
 // Runs before first paint, as a file because the app's CSP blocks inline scripts.
 (() => {
   const key = "rakazo.uiAppearance";
-  let preference = "system";
+  // me opens in light mode on a first visit; a stored choice (including "system") still wins.
+  let preference = "light";
   try {
     const stored = localStorage.getItem(key);
     if (stored === "system" || stored === "light" || stored === "dark") preference = stored;
+    else localStorage.setItem(key, "light");
   } catch {}
   const systemLight =
     typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: light)").matches;

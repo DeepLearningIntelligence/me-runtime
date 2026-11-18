@@ -420,8 +420,8 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
                 <p className="mt-8 text-muted-foreground">
                   {mode === "in" ? (
                     <Trans>
-                      me.io is invite-only. Open the invite link you were sent, or ask your inviter
-                      for one.
+                      {BRAND_NAME} is invite-only. Open the invite link you were sent, or ask your
+                      inviter for one.
                     </Trans>
                   ) : (
                     <Link to={`/sign-in${nextQuery}`} className="font-medium text-foreground">
@@ -542,9 +542,9 @@ export function AuthFrame({
       <div className="flex flex-1 items-center justify-center px-6 pb-16">
         <form onSubmit={onSubmit} className="flex w-full max-w-[460px] flex-col items-center">
           <img
-            src="/brand/me-mark.png"
-            alt=""
-            className="h-[74px] w-[74px] rounded-full bg-muted object-contain p-2"
+            src="/brand/me-go-fund-it-now.png"
+            alt={BRAND_NAME}
+            className="h-auto w-[300px] max-w-full object-contain"
           />
           <h1
             aria-live="polite"

@@ -75,7 +75,7 @@ async function render(entry = "/welcome?invite=tok-1") {
 it("names the inviter, says what the product is, and hands the token to sign-in", async () => {
   inspect.mockResolvedValue({ ok: true, inviterName: "Ada", expiresAt: "2026-11-30T00:00:00Z" });
   await render();
-  expect(host.textContent).toContain("Ada invited you to me.io");
+  expect(host.textContent).toContain("Ada invited you to me");
   expect(host.textContent).toContain("agents");
   const link = host.querySelector('a[href="/sign-in?invite=tok-1"]')!;
   expect(link.textContent).toBe("Continue");

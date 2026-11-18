@@ -168,7 +168,7 @@ it("walks name, email, WhatsApp, invites and ends on Back to WhatsApp after an i
   expect(updateUser).toHaveBeenCalledWith({ name: "Ada" });
   expect(host.querySelector("h1")!.textContent).toBe("Add your email");
   await click("Skip for now");
-  expect(host.querySelector("h1")!.textContent).toBe("Where will you use me.io?");
+  expect(host.querySelector("h1")!.textContent).toBe("Where will you use me?");
   await click("Continue");
   expect(host.querySelector("h1")!.textContent).toBe("Connect WhatsApp");
   expect(host.textContent).toContain("Send the pre-filled message");

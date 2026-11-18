@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { isBuildId } from "@rakazo/contracts/client-build";
-import { webDarkTokens } from "@rakazo/ui-tokens";
+import { webLightTokens } from "@rakazo/ui-tokens";
 import type { Plugin, Rolldown } from "vite";
 import { BRAND_NAME } from "../me/brand.js";
 import { CACHE_PREFIX } from "./service-worker.js";
@@ -24,8 +24,8 @@ export function webManifest() {
     start_url: "/",
     scope: "/",
     display: "standalone",
-    background_color: webDarkTokens.background,
-    theme_color: webDarkTokens.background,
+    background_color: webLightTokens.background,
+    theme_color: webLightTokens.background,
     // The icons are full-bleed, so the same art also works under a launcher mask.
     icons: [
       ...icons.map((icon) => ({ ...icon, purpose: "any" })),
