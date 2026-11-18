@@ -179,6 +179,8 @@ it("walks name, email, WhatsApp, invites and ends on Back to WhatsApp after an i
   expect(host.querySelector("h1")!.textContent).toBe("You’re connected");
   const back = host.querySelector('a[href="https://wa.me/15550001"]')!;
   expect(back.textContent).toBe("Back to WhatsApp");
+  // The wa.me links navigate in the same tab (F6); no new-tab navigation to drop.
+  expect(back.getAttribute("target")).toBeNull();
 });
 
 it("ends in the portal with WhatsApp offered when the person started on the web", async () => {

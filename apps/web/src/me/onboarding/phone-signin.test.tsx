@@ -152,3 +152,56 @@ it("shows the code to send by hand, with a labelled copy button, and the busines
   expect(writeText).toHaveBeenCalledWith(DOOR.nonce);
   expect(copy.textContent).toBe("Copied");
 });
+
+it("opens WhatsApp in the same tab, so no navigation is silently dropped", async () => {
+  startPhoneDoor.mockResolvedValue(DOOR);
+
+  await render();
+  await click("Continue");
+  const link = host.querySelector<HTMLAnchorElement>(`a[href="${DOOR.waLink}"]`)!;
+  expect(link).not.toBeNull();
+  expect(link.getAttribute("target")).toBeNull();
+  expect(link.getAttribute("rel")).toBeNull();
+});
+
+it("keeps the door across a page reload, and the restored door still verifies", async () => {
+  startPhoneDoor.mockResolvedValue(DOOR);
+  verifyPhoneDoor.mockResolvedValue(undefined);
+
+  await render();
+  await click("Continue");
+  expect(startPhoneDoor).toHaveBeenCalledTimes(1);
+
+  // The same-tab round trip through WhatsApp lands on a reload: a fresh mount
+  // with the browser's own storage intact.
+  await act(async () => root.unmount());
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await render();
+
+  expect(startPhoneDoor).toHaveBeenCalledTimes(1);
+  expect(host.textContent).toContain(DOOR.nonce);
+  await typeCode("654321");
+  await click("Verify");
+  expect(verifyPhoneDoor).toHaveBeenCalledWith({ nonce: DOOR.nonce, code: "654321" });
+});
+
+it("opens no restored door whose code has expired", async () => {
+  startPhoneDoor.mockResolvedValue({
+    ...DOOR,
+    expiresAt: new Date(Date.now() - 1000).toISOString(),
+  });
+
+  await render();
+  await click("Continue");
+  await act(async () => root.unmount());
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await render();
+
+  expect(host.textContent).toContain("We send a sign-in code");
+  await click("Continue");
+  expect(startPhoneDoor).toHaveBeenCalledTimes(2);
+});

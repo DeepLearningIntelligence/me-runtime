@@ -12,6 +12,46 @@ const codeFieldClass = "size-12 text-heading3 first:rounded-l-xl last:rounded-r-
 const primaryClass = "mt-3 h-12 w-full rounded-xl text-body-lg";
 
 /**
+ * The open door, kept by the browser for one sign-in journey (session storage,
+ * the same way the entry flag is kept): WhatsApp now opens in the same tab, so
+ * coming back lands on a reload, and the code field must still be there with
+ * the nonce the server still knows. An expired door loads as no door at all.
+ */
+
+const DOOR_KEY = "me.phone-door";
+
+function loadDoor(): StartedDoor | null {
+  try {
+    const raw = window.sessionStorage.getItem(DOOR_KEY);
+    if (!raw) return null;
+    const door = JSON.parse(raw) as StartedDoor;
+    if (
+      typeof door.nonce !== "string" ||
+      typeof door.waLink !== "string" ||
+      typeof door.businessNumber !== "string" ||
+      typeof door.expiresAt !== "string" ||
+      typeof door.ttlMs !== "number"
+    ) {
+      return null;
+    }
+    if (Date.parse(door.expiresAt) <= Date.now()) return null;
+    return door;
+  } catch {
+    // Unreadable storage opens as no door; the person starts over.
+    return null;
+  }
+}
+
+function saveDoor(door: StartedDoor | null): void {
+  try {
+    if (door) window.sessionStorage.setItem(DOOR_KEY, JSON.stringify(door));
+    else window.sessionStorage.removeItem(DOOR_KEY);
+  } catch {
+    // Blocked storage only loses the round trip; the door still works in one stretch.
+  }
+}
+
+/**
  * The phone door's screen (D-RUN-5): the person taps the wa.me link, which
  * sends `ME-<nonce>` from their own WhatsApp, and types the code the business
  * line replies with. The number is learned from that message, so it is never
@@ -24,7 +64,7 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
   const { t } = useLingui();
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get("invite") ?? undefined;
-  const [door, setDoor] = useState<StartedDoor | null>(null);
+  const [door, setDoor] = useState<StartedDoor | null>(() => loadDoor());
   const [code, setCode] = useState("");
   const [pending, setPending] = useState(false);
   const [refusal, setRefusal] = useState<DoorRefusal | null>(null);
@@ -64,6 +104,7 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
       const started = await startPhoneDoor({ inviteToken: inviteToken || undefined });
       if (mounted.current) {
         setDoor(started);
+        saveDoor(started);
         setCode("");
       }
     } catch (caught) {
@@ -80,6 +121,7 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
       await verifyPhoneDoor({ nonce: door.nonce, code: value });
       // The session cookie is set; the store refetches, and the routes move
       // the person on once the session lands.
+      saveDoor(null);
       authClient.$store.notify("$sessionSignal");
       onSignedIn();
     } catch (caught) {
@@ -94,6 +136,7 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
 
   function restart() {
     setDoor(null);
+    saveDoor(null);
     setCode("");
     setRefusal(null);
   }
@@ -109,7 +152,7 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
             size="lg"
             disabled={pending}
             className={primaryClass}
-            render={<a href={door.waLink} target="_blank" rel="noreferrer" />}
+            render={<a href={door.waLink} />}
           >
             <Trans>Open WhatsApp</Trans>
           </Button>

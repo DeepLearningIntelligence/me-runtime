@@ -328,7 +328,7 @@ function LinkStep({
             type="button"
             size="lg"
             className={submitClass}
-            render={<a href={openLink!} target="_blank" rel="noreferrer" />}
+            render={<a href={openLink!} />}
           >
             <Trans>Open WhatsApp</Trans>
           </Button>
@@ -447,7 +447,7 @@ function DoneStep({ chatUrl, toPortal }: { chatUrl: string | null; toPortal: () 
               type="button"
               size="lg"
               className={submitClass}
-              render={<a href={chatUrl} target="_blank" rel="noreferrer" />}
+              render={<a href={chatUrl} />}
             >
               <Trans>Back to WhatsApp</Trans>
             </Button>
@@ -471,7 +471,7 @@ function DoneStep({ chatUrl, toPortal }: { chatUrl: string | null; toPortal: () 
               variant="link"
               size="sm"
               className="mt-3"
-              render={<a href={chatUrl} target="_blank" rel="noreferrer" />}
+              render={<a href={chatUrl} />}
             >
               <Trans>Chat in WhatsApp</Trans>
             </Button>
