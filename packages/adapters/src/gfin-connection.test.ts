@@ -1,30 +1,29 @@
 import type { ConnectorCall, ConnectorEvent, ConnectorProvider } from "@rakazo/adapter-kit";
+import { connectorToolRequiresApproval } from "@rakazo/core";
 import { createLogger, createTestSink, getLogger, installLogger } from "@rakazo/logging";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   findBlockedArgKey,
   GFIN_CONNECTION_SLUG,
   GFIN_ORG_ID_REFUSAL,
-  GFIN_PUBLIC_TOOLS,
   GFIN_TOOL_GUARD,
   GFIN_TOOL_REFUSAL,
+  GFIN_TOOLS,
   guardConnectorTools,
   guardedToolRefusal,
   parseGfinConnectionEnv,
 } from "./gfin-connection.js";
 import { McpConnector } from "./mcp-connector.js";
+import { EncryptedSecretStore } from "./secrets.js";
 
 /**
- * The closed set of the deployment's GFIN connection, against a stub MCP server that
- * speaks JSON-RPC through stubbed fetch: no real network. The stub offers four tools,
- * two of which the house connection must never reach.
+ * The GFIN connection's tool table and lanes, against a stub MCP server that speaks
+ * JSON-RPC through stubbed fetch: no real network. The stub offers every registered tool
+ * plus one name GFIN does not register.
  */
-const STUB_TOOLS = [
-  "search_opportunities",
-  "get_opportunity",
-  "read_draft",
-  "delete_opportunity",
-] as const;
+const STUB_TOOLS = [...GFIN_TOOLS.map((tool) => tool.name), "delete_opportunity"] as const;
+
+const PUBLIC_TOOLS = GFIN_TOOLS.filter((tool) => tool.lane === "public").map((tool) => tool.name);
 
 const GFIN_SERVER = {
   id: "gfin-server",
@@ -32,7 +31,7 @@ const GFIN_SERVER = {
   name: "Go Fund It Now (public search)",
   transport: "streamable_http",
   endpoint: "https://gfin.example.test/api/mcp",
-  secretId: null,
+  secretId: null as string | null,
   args: [],
   revision: 1,
   enabled: true,
@@ -44,7 +43,7 @@ const OTHER_SERVER = {
   name: "Notes",
   transport: "streamable_http",
   endpoint: "https://gfin.example.test/api/mcp",
-  secretId: null,
+  secretId: null as string | null,
   args: [],
   revision: 1,
   enabled: true,
@@ -111,7 +110,7 @@ function mcpStubServer(state: { calls: Array<{ name: string; args: unknown }>; i
   });
 }
 
-function stubPrisma(shared = GFIN_SERVER) {
+function stubPrisma(shared = GFIN_SERVER, secretRecord?: { id: string; ciphertext: string }) {
   return {
     mcpServer: {
       // The allBots discovery query; the connector reads shared servers here.
@@ -120,10 +119,26 @@ function stubPrisma(shared = GFIN_SERVER) {
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
     botMcpServer: NO_ASSIGNMENTS,
+    secret: { findFirst: vi.fn(async () => secretRecord ?? null) },
   };
 }
 
-const gfinToolCall = (toolName: string, args: Record<string, unknown>): ConnectorCall => ({
+/** A credentialed row and the encrypted record its secretId points at. */
+async function connectedFixture() {
+  const store = new EncryptedSecretStore("0123456789abcdef0123456789abcdef");
+  const record = await store.put(
+    JSON.stringify({ secret: "gfin_personal_test_key_111111" }),
+    context,
+  );
+  const server = { ...GFIN_SERVER, secretId: record.id };
+  return { store, server, prisma: stubPrisma(server, { id: record.id, ciphertext: record.ref }) };
+}
+
+const gfinToolCall = (
+  toolName: string,
+  args: Record<string, unknown>,
+  credentialed = false,
+): ConnectorCall => ({
   tool: `mcp__${GFIN_CONNECTION_SLUG}__${toolName}`,
   args,
   executionId: "exec-1",
@@ -133,6 +148,7 @@ const gfinToolCall = (toolName: string, args: Record<string, unknown>): Connecto
     resourceRevision: 1,
     toolName,
     catalogGroup: GFIN_CONNECTION_SLUG,
+    credentialed,
   },
 });
 
@@ -142,10 +158,25 @@ async function collect(events: AsyncIterable<ConnectorEvent>): Promise<Connector
   return all;
 }
 
+function stubProvider(): ConnectorProvider {
+  return {
+    describe: () => ({
+      id: "stub",
+      contractVersion: "1",
+      adapterVersion: "0",
+      capabilities: { discover: true, oauth: false, secretsBrokered: false },
+    }),
+    discoverTools: async () => [],
+    execute: async function* () {
+      yield { type: "result", data: null };
+    },
+  };
+}
+
 describe("gfin connection tool guard", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("offers only the closed tool set of the connection, from a stub MCP server", async () => {
+  it("offers the public read tools only, from a stub MCP server", async () => {
     const state = { calls: [] as Array<{ name: string; args: unknown }>, inits: 0 };
     vi.stubGlobal("fetch", mcpStubServer(state));
     const inner = new McpConnector(stubPrisma() as never, {} as never, { network: TEST_NETWORK });
@@ -153,8 +184,28 @@ describe("gfin connection tool guard", () => {
     try {
       const tools = await guarded.discoverTools(context);
       expect(tools.map((tool) => tool.name)).toEqual(
-        GFIN_PUBLIC_TOOLS.map((name) => `mcp__${GFIN_CONNECTION_SLUG}__${name}`),
+        PUBLIC_TOOLS.map((name) => `mcp__${GFIN_CONNECTION_SLUG}__${name}`),
       );
+      expect(tools.every((tool) => tool.route?.credentialed === false)).toBe(true);
+    } finally {
+      await inner.close();
+    }
+  });
+
+  it("offers all seven registered tools on a credentialed connection", async () => {
+    const fixture = await connectedFixture();
+    const state = { calls: [] as Array<{ name: string; args: unknown }>, inits: 0 };
+    vi.stubGlobal("fetch", mcpStubServer(state));
+    const inner = new McpConnector(fixture.prisma as never, fixture.store, {
+      network: TEST_NETWORK,
+    });
+    const guarded = guardConnectorTools(inner, GFIN_TOOL_GUARD);
+    try {
+      const tools = await guarded.discoverTools(context);
+      expect(tools.map((tool) => tool.name)).toEqual(
+        GFIN_TOOLS.map((tool) => `mcp__${GFIN_CONNECTION_SLUG}__${tool.name}`),
+      );
+      expect(tools.every((tool) => tool.route?.credentialed === true)).toBe(true);
     } finally {
       await inner.close();
     }
@@ -169,12 +220,13 @@ describe("gfin connection tool guard", () => {
     try {
       const tools = await guarded.discoverTools(context);
       expect(tools.map((tool) => tool.name)).toContain("mcp__notes__delete_opportunity");
+      expect(tools.map((tool) => tool.name)).toContain("mcp__notes__list_pipeline");
     } finally {
       await inner.close();
     }
   });
 
-  it("refuses a tool outside the closed set before any request", async () => {
+  it("refuses a tool outside the table before any request", async () => {
     const state = { calls: [] as Array<{ name: string; args: unknown }>, inits: 0 };
     const fetchStub = mcpStubServer(state);
     vi.stubGlobal("fetch", fetchStub);
@@ -192,19 +244,72 @@ describe("gfin connection tool guard", () => {
     }
   });
 
-  it("refuses an org_id argument, before any request", async () => {
+  it("refuses connected tools on the public lane before any request", async () => {
     const state = { calls: [] as Array<{ name: string; args: unknown }>, inits: 0 };
     const fetchStub = mcpStubServer(state);
     vi.stubGlobal("fetch", fetchStub);
     const inner = new McpConnector(stubPrisma() as never, {} as never, { network: TEST_NETWORK });
     const guarded = guardConnectorTools(inner, GFIN_TOOL_GUARD);
     try {
-      for (const args of [{ org_id: "org-123" }, { query: { org_id: "org-123" } }]) {
-        const events = await collect(
-          guarded.execute(gfinToolCall("search_opportunities", args), context),
-        );
-        expect(events).toEqual([{ type: "error", message: GFIN_ORG_ID_REFUSAL }]);
+      for (const toolName of ["list_pipeline", "save_opportunity"]) {
+        const events = await collect(guarded.execute(gfinToolCall(toolName, {}), context));
+        expect(events).toEqual([{ type: "error", message: GFIN_TOOL_REFUSAL }]);
       }
+      expect(fetchStub).not.toHaveBeenCalled();
+    } finally {
+      await inner.close();
+    }
+  });
+
+  it("allows every class on the lane that serves it", () => {
+    for (const tool of GFIN_TOOLS) {
+      expect(
+        guardedToolRefusal(tool.name, { query: "grants" }, GFIN_TOOL_GUARD, tool.lane),
+      ).toBeUndefined();
+    }
+    expect(
+      guardedToolRefusal("save_opportunity", {}, GFIN_TOOL_GUARD, "connected"),
+    ).toBeUndefined();
+    expect(guardedToolRefusal("not_a_gfin_tool", {}, GFIN_TOOL_GUARD, "connected")).toContain(
+      "gfin_tool_not_allowed",
+    );
+  });
+
+  it("classifies exactly GFIN's seven registered tools", () => {
+    expect(GFIN_TOOLS).toEqual([
+      { name: "search_opportunities", kind: "read", lane: "public" },
+      { name: "get_opportunity", kind: "read", lane: "public" },
+      { name: "get_organization_profile", kind: "read", lane: "connected" },
+      { name: "get_project_requirements", kind: "read", lane: "connected" },
+      { name: "list_pipeline", kind: "read", lane: "connected" },
+      { name: "get_my_saved_opportunities", kind: "read", lane: "connected" },
+      { name: "save_opportunity", kind: "write", lane: "connected" },
+    ]);
+  });
+
+  it("leaves save_opportunity to the existing approval gate as a write", () => {
+    // The gate reads the tool's declared effect and its name; save is never a read.
+    expect(connectorToolRequiresApproval("save_opportunity", true)).toBe(true);
+    expect(connectorToolRequiresApproval("save_opportunity", undefined)).toBe(true);
+  });
+
+  it("refuses an org_id argument on every tool, before any request", async () => {
+    const state = { calls: [] as Array<{ name: string; args: unknown }>, inits: 0 };
+    const fetchStub = mcpStubServer(state);
+    vi.stubGlobal("fetch", fetchStub);
+    const fixture = await connectedFixture();
+    const inner = new McpConnector(fixture.prisma as never, fixture.store, {
+      network: TEST_NETWORK,
+    });
+    const guarded = guardConnectorTools(inner, GFIN_TOOL_GUARD);
+    try {
+      const events = await collect(
+        guarded.execute(
+          gfinToolCall("list_pipeline", { filter: { org_id: "org-123" } }, true),
+          context,
+        ),
+      );
+      expect(events).toEqual([{ type: "error", message: GFIN_ORG_ID_REFUSAL }]);
       expect(fetchStub).not.toHaveBeenCalled();
     } finally {
       await inner.close();
@@ -227,24 +332,31 @@ describe("gfin connection tool guard", () => {
     }
   });
 
+  it("lets a connected read through on a credentialed connection", async () => {
+    const fixture = await connectedFixture();
+    const state = { calls: [] as Array<{ name: string; args: unknown }>, inits: 0 };
+    vi.stubGlobal("fetch", mcpStubServer(state));
+    const inner = new McpConnector(fixture.prisma as never, fixture.store, {
+      network: TEST_NETWORK,
+    });
+    const guarded = guardConnectorTools(inner, GFIN_TOOL_GUARD);
+    try {
+      const events = await collect(
+        guarded.execute(gfinToolCall("list_pipeline", {}, true), context),
+      );
+      expect(events).toEqual([{ type: "result", data: expect.anything() }]);
+      expect(state.calls).toEqual([{ name: "list_pipeline", args: {} }]);
+    } finally {
+      await inner.close();
+    }
+  });
+
   it("logs a refusal without the arguments", async () => {
     const sink = createTestSink();
     const previous = getLogger();
     installLogger(createLogger({ service: "test", sinks: [sink], level: "debug" }));
     try {
-      const inner = {
-        describe: () => ({
-          id: "stub",
-          contractVersion: "1",
-          adapterVersion: "0",
-          capabilities: { discover: true, oauth: false, secretsBrokered: false },
-        }),
-        discoverTools: async () => [],
-        execute: async function* () {
-          yield { type: "result", data: null };
-        },
-      } satisfies ConnectorProvider;
-      const guarded = guardConnectorTools(inner, GFIN_TOOL_GUARD);
+      const guarded = guardConnectorTools(stubProvider(), GFIN_TOOL_GUARD);
       await collect(
         guarded.execute(
           gfinToolCall("search_opportunities", { org_id: "secret-org-value", query: "x" }),
@@ -269,11 +381,15 @@ describe("gfin connection tool guard", () => {
     expect(
       guardedToolRefusal("search_opportunities", { query: "x" }, GFIN_TOOL_GUARD),
     ).toBeUndefined();
-    expect(guardedToolRefusal("read_draft", {}, GFIN_TOOL_GUARD)).toBe(GFIN_TOOL_REFUSAL);
+    expect(guardedToolRefusal("delete_opportunity", {}, GFIN_TOOL_GUARD)).toBe(GFIN_TOOL_REFUSAL);
   });
 
   it("reads the deployment config; provisioning values arrive together", () => {
-    expect(parseGfinConnectionEnv({})).toBeUndefined();
+    expect(parseGfinConnectionEnv({})).toEqual({
+      mcpUrl: "https://app.gofunditnow.com/api/mcp",
+      houseKey: undefined,
+      provision: undefined,
+    });
     expect(parseGfinConnectionEnv({ ME_GFIN_HOUSE_KEY: "hk_1" })).toEqual({
       mcpUrl: "https://app.gofunditnow.com/api/mcp",
       houseKey: "hk_1",
@@ -294,5 +410,14 @@ describe("gfin connection tool guard", () => {
       mcpUrl: "https://app.gofunditnow.com/api/mcp",
       provision: { url: "https://g3.example.test/provision", token: "t" },
     });
+  });
+});
+
+describe.each(GFIN_TOOLS.map((tool) => tool.name))("%s refuses org_id", (toolName) => {
+  it("at the top level and one level deep", () => {
+    for (const args of [{ org_id: "org-123" }, { filter: { org_id: "org-123" } }])
+      expect(guardedToolRefusal(toolName, args, GFIN_TOOL_GUARD, "connected")).toBe(
+        GFIN_ORG_ID_REFUSAL,
+      );
   });
 });

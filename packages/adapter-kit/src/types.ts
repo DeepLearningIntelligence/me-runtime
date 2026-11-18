@@ -298,6 +298,8 @@ export interface ConnectorRoute {
   connectionId?: string;
   /** Source label for lazy catalog name indexes. Never exposed as a model schema field. */
   catalogGroup?: string;
+  /** The connection this route reaches was authorized by a stored credential on its row. */
+  credentialed?: boolean;
   /** The `ui://` resource that shows this tool's result; see ConnectorApp. */
   appResourceUri?: string;
 }
