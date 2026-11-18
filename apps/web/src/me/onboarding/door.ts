@@ -80,8 +80,40 @@ export function startPhoneDoor(input: { inviteToken?: string } = {}): Promise<St
   return call<StartedDoor>("/api/auth/phone/start", { inviteToken: input.inviteToken });
 }
 
-export function verifyPhoneDoor(input: { nonce: string; code: string }): Promise<void> {
-  return call<{ ok: true }>("/api/auth/phone/verify", input).then(() => undefined);
+export function verifyPhoneDoor(input: {
+  nonce: string;
+  code: string;
+}): Promise<{ whatsapp: DoorWhatsappState }> {
+  return call<{ ok: true; whatsapp?: unknown }>("/api/auth/phone/verify", input).then((parsed) => ({
+    whatsapp: isWhatsappState(parsed.whatsapp) ? parsed.whatsapp : "not_attempted",
+  }));
+}
+
+/**
+ * The verify answer's WhatsApp link state (ME-RUN-005). `linked` and
+ * `already_linked` end onboarding's WhatsApp step; the others keep it and let
+ * the done screen say why.
+ */
+export type DoorWhatsappState =
+  | "linked"
+  | "already_linked"
+  | "linked_elsewhere"
+  | "agent_has_other_number"
+  | "not_attempted";
+
+function isWhatsappState(value: unknown): value is DoorWhatsappState {
+  return (
+    value === "linked" ||
+    value === "already_linked" ||
+    value === "linked_elsewhere" ||
+    value === "agent_has_other_number" ||
+    value === "not_attempted"
+  );
+}
+
+/** The saved state of one journey, or null when this journey carried none. */
+export function parseWhatsappState(value: string | null): DoorWhatsappState | null {
+  return isWhatsappState(value) ? value : null;
 }
 
 /** The refusal a door shows, and whether it must stay on screen. */

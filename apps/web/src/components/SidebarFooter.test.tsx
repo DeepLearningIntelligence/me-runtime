@@ -137,7 +137,7 @@ it("opens integrations and keeps the existing account actions and links", async 
   const onIntegrations = vi.fn();
   await render("Demo User", undefined, onIntegrations, vi.fn());
   const connect = [...host.querySelectorAll("button")].find((button) =>
-    button.textContent?.includes("Connect apps"),
+    button.textContent?.includes("Connect tools"),
   )!;
   await act(async () => connect.click());
   expect(onIntegrations).toHaveBeenCalledOnce();
@@ -176,7 +176,7 @@ it("falls back when app artwork fails and accepts replacement artwork", async ()
     { name: "Slack", logo: "https://example.test/slack.svg" },
   ]);
   const pill = [...host.querySelectorAll("button")].find((button) =>
-    button.textContent?.includes("Connect apps"),
+    button.textContent?.includes("Connect tools"),
   )!;
   await act(async () => pill.querySelector("img")!.dispatchEvent(new Event("error")));
   expect(pill.querySelector("img")).toBeNull();
@@ -311,3 +311,58 @@ it("lists two organizations with the active one checked", async () => {
   await act(async () => rows[1]!.click());
   expect(onSwitch).toHaveBeenCalledWith(work);
 });
+
+it("shows the WhatsApp row connected with the linked agent's name", async () => {
+  const onPeople = vi.fn();
+  await renderWithWhatsapp({ connected: true, botName: "Chief" }, onPeople);
+  const row = document.querySelector('[data-testid="whatsapp-menu-row"]')!;
+  expect(row.textContent).toContain("Connected · Chief");
+  // A connected row is a status, not a control.
+  expect(document.querySelectorAll('[data-testid="whatsapp-menu-row"] button')).toHaveLength(0);
+  expect(onPeople).not.toHaveBeenCalled();
+});
+
+it("offers Connect on the WhatsApp row and opens People, the connect-a-chat-app panel", async () => {
+  const onPeople = vi.fn();
+  await renderWithWhatsapp({ connected: false, botName: null }, onPeople);
+  const row = document.querySelector('[data-testid="whatsapp-menu-row"]')!;
+  expect(row.textContent).toContain("Connect");
+  await act(async () => (row as HTMLButtonElement).click());
+  expect(onPeople).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the account menu unchanged when no WhatsApp status was loaded", async () => {
+  await render();
+  expect(document.querySelector('[data-testid="whatsapp-menu-row"]')).toBeNull();
+  expect(document.body.textContent).toContain("Connect tools");
+  expect(document.body.textContent).not.toContain("Connect apps");
+});
+
+async function renderWithWhatsapp(
+  whatsapp: { connected: boolean; botName: string | null },
+  onPeople: () => void,
+) {
+  await act(async () =>
+    root.render(
+      <DesktopUpdatesProvider>
+        <SidebarFooter
+          name="Demo User"
+          initials="DU"
+          open
+          onOpenChange={() => {}}
+          onIntegrations={vi.fn()}
+          onSkills={vi.fn()}
+          onArtifacts={() => {}}
+          onVault={vi.fn()}
+          onPeople={onPeople}
+          onInvites={vi.fn()}
+          onSettings={() => {}}
+          whatsapp={whatsapp}
+          onLogOut={() => {}}
+          signingOut={false}
+          logOutError={null}
+        />
+      </DesktopUpdatesProvider>,
+    ),
+  );
+}
