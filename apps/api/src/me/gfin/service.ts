@@ -1,5 +1,5 @@
 import type { AdapterContext, SecretStore } from "@rakazo/adapter-kit";
-import type { GfinConnectionConfig } from "@rakazo/adapters";
+import type { GfinConnectionConfig, GfinMode } from "@rakazo/adapters";
 import {
   GFIN_CONNECTION_SLUG,
   GFIN_KEY_MALFORMED,
@@ -17,11 +17,13 @@ import { getLogger } from "@rakazo/logging";
 /**
  * The person's Go Fund It Now connection (D-RUN-9).
  *
- * One function converges the connection for a person: it creates it on first admission,
- * and when per-person provisioning (GFIN G3) goes live it re-keys the existing
- * public-search connection to the personal key in the same code path. It is called from
- * the account hook on every workspace admission, so a failed run is retried on the next
- * sign-in and an account that predates this code converges too.
+ * One function converges the connection for a person on every admission: it creates the
+ * public connection on first admission, with no credential, and when a provisioning key
+ * or the house key is configured it upgrades the same row to the connected label and
+ * credential in this code path. A stored credential also selects the connected tool lane
+ * in the guard; nothing writes a separate allowlist. A person who added a second server
+ * pointing at the GFIN endpoint has it disabled here, because two rows would serve the
+ * same connection with different credentials.
  *
  * The key is stored only through the encrypted secret store, as MCP credential material
  * (`{ secret }`); no row, log, prompt or DTO ever holds it. me.io never sends `org_id`,
@@ -31,69 +33,75 @@ import { getLogger } from "@rakazo/logging";
 export interface GfinConnectionDeps {
   prisma: Pick<PrismaClient, "mcpServer" | "secret" | "spaceMember" | "user" | "$transaction">;
   secrets: Pick<SecretStore, "put">;
-  config: GfinConnectionConfig | undefined;
+  config: GfinConnectionConfig;
   /** Server-to-server calls; tests inject a stub. Defaults to global fetch. */
   fetch?: typeof globalThis.fetch;
 }
 
 /** What the convergence did, named so the caller can log or count it. */
-export type GfinConnectionOutcome =
-  | { action: "created" | "rekeyed" | "current"; mode: "public" | "personal" }
-  | { action: "off" };
-
-/** The resolved key and the connection mode it stands for. */
-type ResolvedKey = { key: string; mode: "public" | "personal" };
+export type GfinConnectionOutcome = {
+  action: "created" | "rekeyed" | "converged" | "current";
+  mode: GfinMode;
+};
 
 export async function ensureGfinConnection(
   deps: GfinConnectionDeps,
   user: { id: string },
 ): Promise<GfinConnectionOutcome> {
-  if (!deps.config) return { action: "off" };
   const existing = await deps.prisma.mcpServer.findFirst({
     where: { userId: user.id, slug: GFIN_CONNECTION_SLUG },
     select: { id: true, spaceId: true, name: true, secretId: true },
   });
-  // Already personal: nothing to resolve, so the per-sign-in path stays off the network.
-  if (existing && existing.name === GFIN_PERSONAL_LABEL)
-    return { action: "current", mode: "personal" };
-
-  let resolved: ResolvedKey;
-  try {
-    resolved = await resolveGfinKey(deps, user.id);
-  } catch (error) {
-    // A malformed provisioning response is a named refusal, never a silent fallback to
-    // the house key; the next admission retries and the hook logs the refusal.
-    if (error instanceof GfinKeyMalformedError) throw error;
-    // An unreachable provisioning endpoint degrades, visibly, to the house key's
-    // public-search connection; without a house key there is nothing to degrade to.
-    if (deps.config.houseKey) {
-      getLogger().warn("gfin provisioning failed; using the public search connection", {
-        "gfin.reason": error instanceof Error ? error.message : "unknown",
-      });
-      resolved = { key: deps.config.houseKey, mode: "public" };
-    } else {
-      throw error;
+  // Already connected: nothing to resolve, so the per-sign-in path stays off the network.
+  const connectedAlready = Boolean(existing?.secretId) && existing?.name === GFIN_PERSONAL_LABEL;
+  let key: string | undefined;
+  if (!connectedAlready) {
+    try {
+      key = await resolveGfinKey(deps, user.id);
+    } catch (error) {
+      // A malformed provisioning response is a named refusal, never a silent fallback to
+      // the house key; the next admission retries and the hook logs the refusal.
+      if (error instanceof GfinKeyMalformedError) throw error;
+      // An unreachable provisioning endpoint degrades, visibly, to the house key.
+      if (deps.config.houseKey) {
+        getLogger().warn("gfin provisioning failed; using the house key", {
+          "gfin.reason": error instanceof Error ? error.message : "unknown",
+        });
+        key = deps.config.houseKey;
+      } else {
+        throw error;
+      }
     }
   }
+  // The row's own credential is the lane authority: a secret means the connected lane.
+  const mode: GfinMode = key || existing?.secretId ? "connected" : "public";
+  const label = labelFor(mode);
 
-  const label = labelFor(resolved.mode);
+  let action: GfinConnectionOutcome["action"];
   if (!existing) {
-    await createConnection(deps, user.id, resolved.key, label);
-    return { action: "created", mode: resolved.mode };
+    await createConnection(deps, user.id, key, label);
+    action = "created";
+  } else if (key !== undefined && (existing.name !== label.name || !existing.secretId)) {
+    await rekeyConnection(deps, user.id, existing, key, label);
+    action = "rekeyed";
+  } else if (existing.name !== label.name) {
+    await relabelConnection(deps.prisma, existing.id, label);
+    action = "converged";
+  } else {
+    action = "current";
   }
-  if (existing.name === label.name) return { action: "current", mode: resolved.mode };
-  await rekeyConnection(deps, user.id, existing, resolved.key, label);
-  return { action: "rekeyed", mode: resolved.mode };
+  const disabled = await disableDuplicateEndpointRows(deps, user.id);
+  if (disabled > 0 && action === "current") action = "converged";
+  return { action, mode };
 }
 
-/** The provisioning endpoint (G3) first, the house key behind the labelled degraded path. */
-async function resolveGfinKey(deps: GfinConnectionDeps, userId: string): Promise<ResolvedKey> {
-  const config = deps.config!;
-  if (!config.provision) {
-    if (!config.houseKey)
-      throw new Error("gfin provisioning is not configured (gfin_unconfigured)");
-    return { key: config.houseKey, mode: "public" };
-  }
+/** The provisioning endpoint (G3) first, the house key behind it, or no key at all. */
+async function resolveGfinKey(
+  deps: GfinConnectionDeps,
+  userId: string,
+): Promise<string | undefined> {
+  const config = deps.config;
+  if (!config.provision) return config.houseKey;
   const person = await deps.prisma.user.findUnique({
     where: { id: userId },
     select: { email: true },
@@ -117,7 +125,7 @@ async function resolveGfinKey(deps: GfinConnectionDeps, userId: string): Promise
   const body = (await response.json()) as { key?: unknown };
   const key = typeof body.key === "string" ? body.key : undefined;
   if (!key?.startsWith(GFIN_PERSONAL_KEY_PREFIX)) throw new GfinKeyMalformedError();
-  return { key, mode: "personal" };
+  return key;
 }
 
 export class GfinKeyMalformedError extends Error {
@@ -127,8 +135,8 @@ export class GfinKeyMalformedError extends Error {
   }
 }
 
-function labelFor(mode: "public" | "personal"): { name: string; description: string } {
-  return mode === "personal"
+function labelFor(mode: GfinMode): { name: string; description: string } {
+  return mode === "connected"
     ? { name: GFIN_PERSONAL_LABEL, description: GFIN_PERSONAL_DESCRIPTION }
     : { name: GFIN_PUBLIC_LABEL, description: GFIN_PUBLIC_DESCRIPTION };
 }
@@ -151,7 +159,7 @@ function connectionContext(spaceId: string, userId: string): AdapterContext {
 async function createConnection(
   deps: GfinConnectionDeps,
   userId: string,
-  key: string,
+  key: string | undefined,
   label: { name: string; description: string },
 ): Promise<void> {
   const membership = await deps.prisma.spaceMember.findFirst({
@@ -161,22 +169,22 @@ async function createConnection(
   });
   if (!membership)
     throw new Error(`gfin provisioning found no workspace for ${userId} (gfin_no_workspace)`);
-  const stored = await deps.secrets.put(
-    credentialMaterial(key),
-    connectionContext(membership.spaceId, userId),
-  );
+  const stored = key
+    ? await deps.secrets.put(credentialMaterial(key), connectionContext(membership.spaceId, userId))
+    : undefined;
   try {
     await deps.prisma.$transaction(async (tx) => {
-      await tx.secret.create({
-        data: {
-          id: stored.id,
-          userId,
-          // Available in every space of the owner, like a server the person added.
-          spaceId: null,
-          kind: "mcp",
-          ciphertext: stored.ciphertext,
-        },
-      });
+      if (stored)
+        await tx.secret.create({
+          data: {
+            id: stored.id,
+            userId,
+            // Available in every space of the owner, like a server the person added.
+            spaceId: null,
+            kind: "mcp",
+            ciphertext: stored.ciphertext,
+          },
+        });
       await tx.mcpServer.create({
         data: {
           spaceId: membership.spaceId,
@@ -187,11 +195,11 @@ async function createConnection(
           name: label.name,
           description: label.description,
           transport: "streamable_http",
-          endpoint: deps.config?.mcpUrl ?? GFIN_MCP_URL,
+          endpoint: deps.config.mcpUrl,
           env: {},
           files: {},
           headers: {},
-          secretId: stored.id,
+          ...(stored ? { secretId: stored.id } : {}),
           enabled: true,
         },
       });
@@ -201,6 +209,43 @@ async function createConnection(
     if (isUniqueViolation(error)) return;
     throw error;
   }
+}
+
+/** The row's label follows its credential state without touching the credential. */
+async function relabelConnection(
+  prisma: GfinConnectionDeps["prisma"],
+  id: string,
+  label: { name: string; description: string },
+): Promise<void> {
+  await prisma.mcpServer.update({
+    where: { id },
+    data: { name: label.name, description: label.description },
+  });
+}
+
+/**
+ * A second row pointing at the same GFIN endpoint would reach the same account with a
+ * different credential and escape the guard's lane, so it is disabled, never deleted.
+ */
+async function disableDuplicateEndpointRows(
+  deps: GfinConnectionDeps,
+  userId: string,
+): Promise<number> {
+  const { count } = await deps.prisma.mcpServer.updateMany({
+    where: {
+      userId,
+      endpoint: { in: [...new Set([deps.config.mcpUrl, GFIN_MCP_URL])] },
+      slug: { not: GFIN_CONNECTION_SLUG },
+      enabled: true,
+    },
+    data: { enabled: false },
+  });
+  if (count > 0)
+    getLogger().warn("disabled duplicate Go Fund It Now connections", {
+      userId,
+      count,
+    });
+  return count;
 }
 
 /** The per-person key arrived: swap the credential and the label, one revision up. */

@@ -2,9 +2,11 @@ import {
   EncryptedSecretStore,
   GFIN_CONNECTION_SLUG,
   GFIN_KEY_MALFORMED,
+  GFIN_MCP_URL,
   GFIN_PERSONAL_KEY_PREFIX,
   GFIN_PUBLIC_LABEL,
 } from "@rakazo/adapters";
+import { createLogger, createTestSink, getLogger, installLogger } from "@rakazo/logging";
 import { describe, expect, it } from "vitest";
 import type { GfinConnectionDeps } from "./service.js";
 import { ensureGfinConnection, GfinKeyMalformedError } from "./service.js";
@@ -82,6 +84,34 @@ function fakePrisma() {
         Object.assign(row, data);
         return row;
       },
+      updateMany: async ({
+        where,
+        data,
+      }: {
+        where: {
+          userId?: string;
+          endpoint?: string | { in: string[] };
+          slug?: { not: string };
+          enabled?: boolean;
+        };
+        data: Record<string, unknown>;
+      }) => {
+        const endpoints =
+          where.endpoint === undefined
+            ? undefined
+            : typeof where.endpoint === "string"
+              ? [where.endpoint]
+              : where.endpoint.in;
+        const matches = servers.filter(
+          (row) =>
+            (where.userId === undefined || row.userId === where.userId) &&
+            (endpoints === undefined || endpoints.includes(String(row.endpoint))) &&
+            (where.slug?.not === undefined || row.slug !== where.slug.not) &&
+            (where.enabled === undefined || row.enabled === where.enabled),
+        );
+        for (const row of matches) Object.assign(row, data);
+        return { count: matches.length };
+      },
     },
     $transaction: async (work: (tx: unknown) => Promise<unknown>) =>
       work({
@@ -132,25 +162,57 @@ function provisionStub(response: { status?: number; body?: unknown }) {
   return { calls, fetchStub };
 }
 
+const CONFIG = { mcpUrl: "https://app.gofunditnow.com/api/mcp" };
+
+function seedServer(
+  fake: ReturnType<typeof fakePrisma>,
+  row: { id: string; slug: string; name: string; endpoint: string; enabled?: boolean },
+) {
+  const seeded = {
+    userId: USER.id,
+    spaceId: "space-1",
+    transport: "streamable_http",
+    allBots: false,
+    allSpaces: false,
+    env: {},
+    files: {},
+    headers: {},
+    args: [],
+    revision: 1,
+    enabled: true,
+    ...row,
+  };
+  fake.servers.push(seeded);
+  return seeded;
+}
+
 describe("gfin connection provisioning", () => {
-  it("creates the labelled public-search connection on account creation, with no user action", async () => {
+  it("creates an enabled public connection with no credential when nothing is configured", async () => {
     const fake = fakePrisma();
-    const outcome = await ensureGfinConnection(
-      deps(fake, {
-        mcpUrl: "https://app.gofunditnow.com/api/mcp",
-        houseKey: HOUSE_KEY,
-      }),
-      USER,
-    );
+    const outcome = await ensureGfinConnection(deps(fake, CONFIG), USER);
     expect(outcome).toEqual({ action: "created", mode: "public" });
     expect(fake.servers).toHaveLength(1);
     const row = fake.servers[0]!;
     expect(row.slug).toBe(GFIN_CONNECTION_SLUG);
     expect(row.name).toBe(GFIN_PUBLIC_LABEL);
     expect(row.transport).toBe("streamable_http");
-    expect(row.endpoint).toBe("https://app.gofunditnow.com/api/mcp");
+    expect(row.endpoint).toBe(CONFIG.mcpUrl);
     expect(row.allBots).toBe(true);
     expect(row.allSpaces).toBe(true);
+    expect(row.enabled).toBe(true);
+    expect(row.secretId).toBeUndefined();
+    expect(fake.secrets).toHaveLength(0);
+  });
+
+  it("stores a configured key only as ciphertext, labelled connected", async () => {
+    const fake = fakePrisma();
+    const outcome = await ensureGfinConnection(
+      deps(fake, { ...CONFIG, houseKey: HOUSE_KEY }),
+      USER,
+    );
+    expect(outcome).toEqual({ action: "created", mode: "connected" });
+    const row = fake.servers[0]!;
+    expect(row.name).toBe("Go Fund It Now");
     // The key exists only as ciphertext in the encrypted store.
     const secretRow = fake.secrets[0]!;
     expect(secretRow.kind).toBe("mcp");
@@ -163,21 +225,14 @@ describe("gfin connection provisioning", () => {
 
   it("converges: a second admission changes nothing", async () => {
     const fake = fakePrisma();
-    const config = { mcpUrl: "https://app.gofunditnow.com/api/mcp", houseKey: HOUSE_KEY };
+    const config = { ...CONFIG, houseKey: HOUSE_KEY };
     await ensureGfinConnection(deps(fake, config), USER);
     const before = JSON.stringify(fake.servers);
     const outcome = await ensureGfinConnection(deps(fake, config), USER);
-    expect(outcome).toEqual({ action: "current", mode: "public" });
+    expect(outcome).toEqual({ action: "current", mode: "connected" });
     expect(fake.servers).toHaveLength(1);
     expect(fake.secrets).toHaveLength(1);
     expect(JSON.stringify(fake.servers)).toBe(before);
-  });
-
-  it("stays off, named, when the deployment configures no key", async () => {
-    const fake = fakePrisma();
-    const outcome = await ensureGfinConnection(deps(fake, undefined), USER);
-    expect(outcome).toEqual({ action: "off" });
-    expect(fake.servers).toHaveLength(0);
   });
 
   it("uses a per-person gfin_ key from the provisioning endpoint, labelled personally", async () => {
@@ -187,14 +242,14 @@ describe("gfin connection provisioning", () => {
       deps(
         fake,
         {
-          mcpUrl: "https://app.gofunditnow.com/api/mcp",
+          ...CONFIG,
           provision: { url: "https://g3.example.test/provision", token: "service-token" },
         },
         provision.fetchStub,
       ),
       USER,
     );
-    expect(outcome).toEqual({ action: "created", mode: "personal" });
+    expect(outcome).toEqual({ action: "created", mode: "connected" });
     const row = fake.servers[0]!;
     expect(row.name).toBe("Go Fund It Now");
     // The service credential authenticates the call; the request names the person and
@@ -210,30 +265,27 @@ describe("gfin connection provisioning", () => {
     expect(await cleartextSurfaces(fake, outcome)).not.toContain(PERSONAL_KEY);
   });
 
-  it("re-keys an existing public-search connection to the personal key automatically", async () => {
+  it("upgrades an existing public connection to the personal key automatically", async () => {
     const fake = fakePrisma();
-    await ensureGfinConnection(
-      deps(fake, { mcpUrl: "https://app.gofunditnow.com/api/mcp", houseKey: HOUSE_KEY }),
-      USER,
-    );
-    const originalSecretId = fake.secrets[0]!.id;
+    await ensureGfinConnection(deps(fake, CONFIG), USER);
+    expect(fake.servers[0]!.secretId).toBeUndefined();
     const provision = provisionStub({ body: { key: PERSONAL_KEY } });
     const outcome = await ensureGfinConnection(
       deps(
         fake,
         {
-          mcpUrl: "https://app.gofunditnow.com/api/mcp",
+          ...CONFIG,
           provision: { url: "https://g3.example.test/provision", token: "service-token" },
         },
         provision.fetchStub,
       ),
       USER,
     );
-    expect(outcome).toEqual({ action: "rekeyed", mode: "personal" });
+    expect(outcome).toEqual({ action: "rekeyed", mode: "connected" });
     const row = fake.servers[0]!;
     expect(row.name).toBe("Go Fund It Now");
-    expect(row.secretId).not.toBe(originalSecretId);
-    // The old secret row went with the re-key.
+    expect(row.secretId).toBeDefined();
+    // The old public row pointed at no secret; the connected row owns exactly one.
     expect(fake.secrets.map((secret) => secret.id)).toEqual([row.secretId]);
     const material = JSON.parse(
       await store.load(fake.secrets[0]!.ciphertext, fake.secrets[0]!.id as never),
@@ -249,7 +301,7 @@ describe("gfin connection provisioning", () => {
         deps(
           fake,
           {
-            mcpUrl: "https://app.gofunditnow.com/api/mcp",
+            ...CONFIG,
             houseKey: HOUSE_KEY,
             provision: { url: "https://g3.example.test/provision", token: "service-token" },
           },
@@ -265,14 +317,14 @@ describe("gfin connection provisioning", () => {
     expect(GFIN_PERSONAL_KEY_PREFIX).toBe("gfin_");
   });
 
-  it("degrades, named, to the public-search connection when provisioning is unreachable", async () => {
+  it("degrades, named, to the house key when provisioning is unreachable", async () => {
     const fake = fakePrisma();
     const provision = provisionStub({ status: 503 });
     const outcome = await ensureGfinConnection(
       deps(
         fake,
         {
-          mcpUrl: "https://app.gofunditnow.com/api/mcp",
+          ...CONFIG,
           houseKey: HOUSE_KEY,
           provision: { url: "https://g3.example.test/provision", token: "service-token" },
         },
@@ -280,7 +332,48 @@ describe("gfin connection provisioning", () => {
       ),
       USER,
     );
-    expect(outcome).toEqual({ action: "created", mode: "public" });
-    expect(fake.servers[0]!.name).toBe(GFIN_PUBLIC_LABEL);
+    expect(outcome).toEqual({ action: "created", mode: "connected" });
+    expect(fake.servers[0]!.name).toBe("Go Fund It Now");
+    const material = JSON.parse(
+      await store.load(fake.secrets[0]!.ciphertext, fake.secrets[0]!.id as never),
+    );
+    expect(material).toEqual({ secret: HOUSE_KEY });
+  });
+
+  it("disables a duplicate server on the GFIN endpoint and leaves every other server alone", async () => {
+    const fake = fakePrisma();
+    const config = { mcpUrl: "https://gfin-proxy.example.test/api/mcp" };
+    const duplicate = seedServer(fake, {
+      id: "srv-duplicate",
+      slug: "gfin-funding-radar-2",
+      name: "GFIN Funding Radar 2",
+      endpoint: GFIN_MCP_URL,
+    });
+    const unrelated = seedServer(fake, {
+      id: "srv-unrelated",
+      slug: "notes",
+      name: "Notes",
+      endpoint: "https://notes.example.test/api/mcp",
+    });
+    const before = JSON.stringify(unrelated);
+    const sink = createTestSink();
+    const previous = getLogger();
+    installLogger(createLogger({ service: "test", sinks: [sink], level: "debug" }));
+    try {
+      const outcome = await ensureGfinConnection(deps(fake, config), USER);
+      expect(outcome).toEqual({ action: "created", mode: "public" });
+      const gfin = fake.servers.find((row) => row.slug === GFIN_CONNECTION_SLUG)!;
+      expect(gfin.endpoint).toBe(config.mcpUrl);
+      expect(gfin.enabled).toBe(true);
+      expect(duplicate.enabled).toBe(false);
+      expect(unrelated.enabled).toBe(true);
+      expect(JSON.stringify(unrelated)).toBe(before);
+      const logged = JSON.stringify(sink.events);
+      expect(logged).toContain("disabled duplicate Go Fund It Now connections");
+      expect(logged).toContain(USER.id);
+      expect(logged).toContain('"count":1');
+    } finally {
+      installLogger(previous);
+    }
   });
 });

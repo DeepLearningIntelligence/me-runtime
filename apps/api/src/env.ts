@@ -76,8 +76,8 @@ export interface AppEnv {
   inviteAllocation: number;
   /** How many days a link lasts (ME_INVITE_TTL_DAYS). */
   inviteTtlDays: number;
-  /** The deployment's Go Fund It Now connection: house key or provisioning endpoint (ME_GFIN_*). */
-  gfin: GfinConnectionConfig | undefined;
+  /** The deployment's Go Fund It Now connection: always on, with a house key or provisioning endpoint when set (ME_GFIN_*). */
+  gfin: GfinConnectionConfig;
   encryptionKey: string;
   contentEncryption: boolean;
   dataDir: string;
