@@ -8,7 +8,7 @@ import { InviteError } from "../invitations/invitations.js";
 import { whatsAppDeepLink } from "../whatsapp-router.js";
 import { CODE_TTL_MS } from "./codes.js";
 import { PhoneSigninError, start, verify } from "./service.js";
-import { signInVerifiedPhone } from "./session.js";
+import { linkVerifiedPhone, signInVerifiedPhone } from "./session.js";
 
 /**
  * The phone door's HTTP half, mounted beside the auth routes so a person signs
@@ -29,6 +29,7 @@ const REFUSAL_STATUS: Record<string, { status: Status }> = {
   code_expired: { status: 410 },
   already_bound: { status: 409 },
   phone_mismatch: { status: 403 },
+  session_mismatch: { status: 403 },
   code_invalid: { status: 400 },
   too_many_attempts: { status: 429 },
   // Account creation through the phone door is invite-only; the named reasons
@@ -55,6 +56,13 @@ export function mountPhoneSigninRoutes(
     }
     const parsed = await parseBody(c);
     if (!parsed) return refusal(c, "invalid_input", 400);
+    const link = parsed.link === true;
+    // A signed-out caller is refused before any row exists or a code is read.
+    let linkUserId: string | undefined;
+    if (link) {
+      linkUserId = await sessionUserId(deps, c);
+      if (!linkUserId) return refusal(c, "unauthorized", 401);
+    }
     const phone =
       typeof parsed.phone === "string" && parsed.phone.trim() ? parsed.phone.trim() : undefined;
     const inviteToken =
@@ -65,12 +73,16 @@ export function mountPhoneSigninRoutes(
       const started = await start(deps.prisma, config, {
         phone,
         inviteToken,
+        linkUserId,
         ipAddress: deps.clientIp(c),
       });
       return c.json({
         ok: true,
         nonce: started.nonce,
         waLink: whatsAppDeepLink(deps.env, started.nonce),
+        // The configured business number, for the fallback when the link does
+        // not open WhatsApp (F5); the deep link is built from the same value.
+        businessNumber: deps.env.whatsappBusinessNumber,
         expiresAt: started.expiresAt.toISOString(),
         ttlMs: CODE_TTL_MS,
       });
@@ -85,18 +97,39 @@ export function mountPhoneSigninRoutes(
     const nonce = typeof parsed.nonce === "string" ? parsed.nonce : undefined;
     const code = typeof parsed.code === "string" ? parsed.code : undefined;
     if (!nonce || !code) return refusal(c, "invalid_input", 400);
+    const link = parsed.link === true;
+    // A signed-out caller is refused before the code is even looked at.
+    let linkUserId: string | undefined;
+    if (link) {
+      linkUserId = await sessionUserId(deps, c);
+      if (!linkUserId) return refusal(c, "unauthorized", 401);
+    }
     try {
-      const { phoneHash, inviteTokenHash } = await verify(deps.prisma, config, { nonce, code });
+      const verified = await verify(deps.prisma, config, { nonce, code });
+      if (link) {
+        // A signed-in person attaches the verified phone to their own account
+        // instead of creating one; the door's invite hash plays no part here,
+        // and a link door redeems only for the person who opened it.
+        await linkVerifiedPhone(
+          deps.prisma,
+          verified.phoneHash,
+          linkUserId!,
+          verified.linkUserId,
+          verified.redeem,
+        );
+        return c.json({ ok: true, linked: true });
+      }
       const person = await signInVerifiedPhone(
         deps.prisma,
         deps.auth,
         deps.env,
-        phoneHash,
+        verified.phoneHash,
         {
           ipAddress: deps.clientIp(c),
           userAgent: c.req.header("user-agent"),
         },
-        inviteTokenHash,
+        verified.inviteTokenHash,
+        verified.redeem,
       );
       await setSessionCookie(c, deps.auth, person.token, person.expiresAt);
       return c.json({ ok: true });
@@ -104,6 +137,15 @@ export function mountPhoneSigninRoutes(
       return refused(c, error);
     }
   });
+}
+
+/** The signed-in person of the request, or null; only the link flow needs one. */
+async function sessionUserId(
+  deps: { auth: Auth },
+  c: Context,
+): Promise<string | undefined> {
+  const session = await deps.auth.api.getSession({ headers: c.req.raw.headers });
+  return session?.user.id;
 }
 
 async function parseBody(c: Context): Promise<Record<string, unknown> | null> {

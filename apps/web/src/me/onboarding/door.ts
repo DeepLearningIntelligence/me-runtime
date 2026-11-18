@@ -24,6 +24,7 @@ export type DoorFailureReason =
   | "code_expired"
   | "already_bound"
   | "phone_mismatch"
+  | "session_mismatch"
   | "code_invalid"
   | "too_many_attempts"
   | "invite_required"
@@ -40,6 +41,11 @@ export type StartedDoor = {
   nonce: string;
   /** The wa.me link carrying `ME-<nonce>`; the person taps it and sends the message. */
   waLink: string;
+  /**
+   * The business number as the deployment configures it, shown with the code so
+   * a link that will not open WhatsApp still has somewhere to send it.
+   */
+  businessNumber: string;
   expiresAt: string;
   ttlMs: number;
 };
@@ -78,6 +84,22 @@ export function verifyPhoneDoor(input: { nonce: string; code: string }): Promise
   return call<{ ok: true }>("/api/auth/phone/verify", input).then(() => undefined);
 }
 
+/** The refusal a door shows, and whether it must stay on screen. */
+export type DoorRefusal = { text: string; stays: boolean };
+
+/**
+ * The words a refused door shows, folded over the refusal already there. An
+ * invite refusal stays: the code is not the problem (F1 keeps it usable), so a
+ * later `code_invalid` from the same door must not push the real reason, and
+ * its next step, off the screen. Anything else replaces freely.
+ */
+export function doorRefusal(previous: DoorRefusal | null, error: unknown): DoorRefusal {
+  if (previous?.stays) return previous;
+  const reason = error instanceof DoorError ? error.reason : "unreachable";
+  const stays = reason === "invite_required" || reason === "invite_invalid";
+  return { text: doorFailureText(error), stays };
+}
+
 /** The words a refused door shows; every refusal names what to do next. */
 export function doorFailureText(error: unknown): string {
   const reason = error instanceof DoorError ? error.reason : "unreachable";
@@ -91,6 +113,7 @@ export function doorFailureText(error: unknown): string {
     code_invalid: t`That code is not right. Check the newest WhatsApp message.`,
     already_bound: t`This code was already used. Start again.`,
     phone_mismatch: t`The code came from a different number. Start again.`,
+    session_mismatch: t`This link was opened for a different sign-in. Start again.`,
     invalid_phone: t`That phone number does not look right.`,
     whatsapp_not_configured: t`WhatsApp sign-in is not set up on this server yet.`,
     identity_key_missing: t`Sign-in is not configured on this server yet.`,

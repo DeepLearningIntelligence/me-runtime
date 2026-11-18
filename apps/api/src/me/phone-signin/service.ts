@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@rakazo/db";
+import type { Prisma, PrismaClient } from "@rakazo/db";
 import { isUniqueViolation, runAsSystem } from "@rakazo/db";
 import { hashInviteToken, inspectInvite } from "../invitations/invitations.js";
 import {
@@ -33,13 +33,16 @@ import { hashIdentifier, normaliseIdentifier } from "./identity.js";
  *   provider message id is claimed in the same transaction as the work, so a
  *   replayed delivery never mints a second code, and a bound nonce never binds
  *   again.
- * - `verify` redeems: code and pending token are compared in constant time, the
- *   redemption is single use, wrong guesses are charged to the row by a
- *   conditional update before the compare (parallel guesses cannot all read
- *   zero), the sixth attempt is refused by name, and a code minted for one
- *   phone can never verify another because the row keeps the phone hash it was
- *   bound with. The row's invite hash rides along: creating the person needs a
- *   valid invitation, an existing person does not.
+ * - `verify` decides: the code is compared in constant time, wrong guesses are
+ *   charged to the row by a conditional update before the compare (parallel
+ *   guesses cannot all read zero), the sixth attempt is refused by name, and a
+ *   code minted for one phone can never verify another because the row keeps
+ *   the phone hash it was bound with. The result carries the one redemption,
+ *   which the admission runs inside its own transaction: a refused admission
+ *   rolls the consume back, so a refusal never burns a correct code, and
+ *   attempts still count because the charge precedes the compare. The row's
+ *   invite hash rides along: creating the person needs a valid invitation, an
+ *   existing person does not.
  *
  * Phones are hashed through `normaliseIdentifier`, the one canonical form
  * (digits, no `+`). No key, nonce, code or token is ever logged; the caller
@@ -62,6 +65,7 @@ export type PhoneSigninFailure =
   | "code_expired"
   | "already_bound"
   | "phone_mismatch"
+  | "session_mismatch"
   | "code_invalid"
   | "too_many_attempts"
   | "invite_required"
@@ -95,14 +99,11 @@ export type InboundOutcome =
   | { reply: string }
   | {
       reply: null;
-      reason:
-        | "replayed"
-        | "identity_key_missing"
-        | "nonce_unknown"
-        | "code_expired"
-        | "already_bound"
-        | "phone_mismatch";
+      reason: "replayed" | "identity_key_missing" | "already_bound" | "phone_mismatch";
     };
+
+/** The one answer a dead or unknown door gets; it never names which. */
+export const EXPIRED_CODE_REPLY = "That code has expired. Open the sign-in page again and use the new link.";
 
 export type VerifiedPhone = {
   /** The bound phone's HMAC; the caller turns it into a person and a session. */
@@ -113,12 +114,25 @@ export type VerifiedPhone = {
    * who already exists signs in again without it.
    */
   inviteTokenHash: string | null;
+  /**
+   * The signed-in person a link door was opened for; null for a sign-in door.
+   * The link redemption checks this against the verifying session: the row is
+   * the authority, never the request.
+   */
+  linkUserId: string | null;
+  /**
+   * The code's one redemption, to run inside the caller's admission
+   * transaction: a refused admission rolls the consume back and the code stays
+   * usable. Refuses with `code_invalid` when the code is already redeemed, so
+   * of two parallel redemptions exactly one wins.
+   */
+  redeem: (client: Prisma.TransactionClient | PrismaClient) => Promise<void>;
 };
 
 const PROVIDER = "whatsapp";
 
 /** The one canonical phone check, over the digits `normaliseIdentifier` leaves. */
-function requirePhoneValue(phone: string): string {
+export function requirePhoneValue(phone: string): string {
   const normalised = normaliseIdentifier("phone", phone);
   if (!/^[1-9]\d{6,14}$/.test(normalised)) throw new PhoneSigninError("invalid_phone");
   return normalised;
@@ -134,7 +148,13 @@ function requirePhoneValue(phone: string): string {
 export async function start(
   prisma: PrismaClient,
   config: PhoneSigninConfig,
-  input: { phone?: string; inviteToken?: string; ipAddress?: string } = {},
+  input: {
+    phone?: string;
+    inviteToken?: string;
+    /** The signed-in person opening the door as a phone link; a link door only. */
+    linkUserId?: string;
+    ipAddress?: string;
+  } = {},
 ): Promise<StartedSignin> {
   if (!config.identityHashKey) throw new PhoneSigninError("identity_key_missing");
 
@@ -163,6 +183,7 @@ export async function start(
       nonceHash: sha256Hex(nonce),
       phoneHash,
       inviteTokenHash: inviteToken ? hashInviteToken(inviteToken) : null,
+      linkUserId: input.linkUserId ?? null,
       expiresAt,
       ipAddress,
     },
@@ -177,7 +198,9 @@ export async function start(
  * One inbound message, routed here only when it might be sign-in. The provider
  * message id is claimed inside the same transaction as the bind, so Meta's
  * retries land on an already-claimed message instead of minting a second code.
- * An outcome without a reply is still a processed message: its claim stands.
+ * An outcome without a reply is still a processed message: its claim stands. A
+ * dead door (an unknown or expired nonce) still gets one answer, worded the
+ * same for both, so the sender learns nothing more than "that code is dead".
  */
 export async function handleInbound(
   prisma: PrismaClient,
@@ -210,9 +233,13 @@ export async function handleInbound(
       }
 
       const row = await tx.mePhoneSignin.findUnique({ where: { nonceHash } });
-      if (!row) return { reply: null, reason: "nonce_unknown" };
+      // An unknown nonce and an expired one get the same answer, so a sender
+      // learns nothing beyond "that code is dead" (F4): the reply text carries
+      // no difference between the two, and the claim above makes a replayed
+      // message id silent.
+      if (!row) return { reply: EXPIRED_CODE_REPLY };
       if (row.boundAt) return { reply: null, reason: "already_bound" };
-      if (row.expiresAt.getTime() <= now) return { reply: null, reason: "code_expired" };
+      if (row.expiresAt.getTime() <= now) return { reply: EXPIRED_CODE_REPLY };
       // A door opened for one phone refuses a different sender; the row keeps
       // the phone hash it was opened with, so the code can only ever belong to
       // that phone.
@@ -237,11 +264,14 @@ export async function handleInbound(
 }
 
 /**
- * Redeems a code once, in constant time, and returns the phone it was minted
- * for. Refusals are named; a wrong guess is charged to the row it belongs to.
- * The charge is a conditional update (`attempts < MAX`) evaluated before the
- * compare, so parallel guesses cannot all read zero: one of two concurrent
- * attempts is charged, the other is refused by name without a write.
+ * Decides a code once, in constant time, and returns the phone it was minted
+ * for plus the code's redemption. Refusals are named; a wrong guess is charged
+ * to the row it belongs to. The charge is a conditional update
+ * (`attempts < MAX`) evaluated before the compare, so parallel guesses cannot
+ * all read zero: one of two concurrent attempts is charged, the other is
+ * refused by name without a write. The redemption itself is not run here: the
+ * caller's admission runs it in its own transaction, so a refusal leaves the
+ * code usable.
  */
 export async function verify(
   prisma: PrismaClient,
@@ -268,15 +298,29 @@ export async function verify(
   if (!constantTimeEqualsHex(row.codeHash, sha256Hex(input.code.trim()))) {
     throw new PhoneSigninError("code_invalid");
   }
+  if (!row.phoneHash) throw new PhoneSigninError("code_invalid");
+  return {
+    phoneHash: row.phoneHash,
+    inviteTokenHash: row.inviteTokenHash ?? null,
+    linkUserId: row.linkUserId ?? null,
+    redeem: (client) => redeemCode(client, row.id, now),
+  };
+}
 
-  // Single use: a concurrent redemption matches nothing.
-  const claimed = await prisma.mePhoneSignin.updateMany({
-    where: { id: row.id, consumedAt: null },
+/**
+ * The one-time redemption of a verified code. The conditional update is the
+ * single-use guard: a concurrent or earlier redemption matches nothing.
+ */
+async function redeemCode(
+  client: Prisma.TransactionClient | PrismaClient,
+  rowId: string,
+  now: number,
+): Promise<void> {
+  const redeemed = await client.mePhoneSignin.updateMany({
+    where: { id: rowId, consumedAt: null },
     data: { consumedAt: new Date(now) },
   });
-  if (claimed.count !== 1) throw new PhoneSigninError("code_invalid");
-  if (!row.phoneHash) throw new PhoneSigninError("code_invalid");
-  return { phoneHash: row.phoneHash, inviteTokenHash: row.inviteTokenHash ?? null };
+  if (redeemed.count !== 1) throw new PhoneSigninError("code_invalid");
 }
 
 function nowOf(config: PhoneSigninConfig): number {

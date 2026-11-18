@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it } from "vitest";
 import { hashIdentifier } from "./identity.js";
-import { handleInbound, PhoneSigninError, start, verify } from "./service.js";
+import { handleInbound, EXPIRED_CODE_REPLY, PhoneSigninError, start, verify } from "./service.js";
 
 /**
  * The door's guards, against an in-memory store that follows the same update
@@ -18,6 +18,7 @@ type SigninRow = {
   nonceHash: string;
   phoneHash: string | null;
   inviteTokenHash: string | null;
+  linkUserId: string | null;
   codeHash: string | null;
   boundAt: Date | null;
   consumedAt: Date | null;
@@ -68,6 +69,7 @@ function fakePrisma() {
         id: `row-${nextId++}`,
         phoneHash: null,
         inviteTokenHash: null,
+        linkUserId: null,
         codeHash: null,
         boundAt: null,
         consumedAt: null,
@@ -180,10 +182,11 @@ describe("phone sign-in", () => {
     const fake = fakePrisma();
     const config = makeConfig(() => now);
 
-    // The claim outlives a delivery that did nothing: this door is unknown.
+    // The claim outlives a delivery that did nothing: this door is unknown, and
+    // the unknown door gets the one dead-code answer.
     await expect(
       bind(fake, config, "ME-UNKNOWN1", "15550001000", "wamid.reuse"),
-    ).resolves.toMatchObject({ reply: null, reason: "nonce_unknown" });
+    ).resolves.toMatchObject({ reply: EXPIRED_CODE_REPLY });
 
     const started = await start(fake.prisma, config, {});
     const minted = await bind(fake, config, started.nonce, "15550001000", "wamid.fresh");
@@ -202,19 +205,25 @@ describe("phone sign-in", () => {
     expect(fake.signins[0]!.codeHash).toBe(codeHash);
   });
 
-  it("refuses an expired pending row by name", async () => {
+  it("answers a dead door once and never on a replay", async () => {
     let now = BASE;
     const fake = fakePrisma();
     const config = makeConfig(() => now);
-    const started = await start(fake.prisma, config, {});
 
+    // An expired door: one answer, worded like the unknown door's.
+    const started = await start(fake.prisma, config, {});
     now = BASE + 10 * 60_000 + 1;
     await expect(
       bind(fake, config, started.nonce, "15550001000", "wamid.late"),
-    ).resolves.toMatchObject({ reply: null, reason: "code_expired" });
+    ).resolves.toMatchObject({ reply: EXPIRED_CODE_REPLY });
     await expect(
       verify(fake.prisma, config, { nonce: started.nonce, code: "123456" }),
     ).rejects.toMatchObject({ reason: "code_expired" });
+
+    // Meta's retry of the same message id is silent: the claim stands.
+    await expect(
+      bind(fake, config, started.nonce, "15550001000", "wamid.late"),
+    ).resolves.toMatchObject({ reply: null, reason: "replayed" });
   });
 
   it("never verifies a code minted for phone A against phone B", async () => {
@@ -289,7 +298,21 @@ describe("phone sign-in", () => {
     expect(fake.signins).toHaveLength(0);
   });
 
-  it("redeems a code once", async () => {
+  it("redeems a code once, through the admission's redemption", async () => {
+    const now = BASE;
+    const fake = fakePrisma();
+    const config = makeConfig(() => now);
+    const started = await start(fake.prisma, config, {});
+    const outcome = await bind(fake, config, started.nonce, "15550001000", "wamid.first");
+    const code = (outcome as { reply: string }).reply;
+
+    const first = await verify(fake.prisma, config, { nonce: started.nonce, code });
+    await first.redeem(fake.prisma);
+    const second = await verify(fake.prisma, config, { nonce: started.nonce, code });
+    await expect(second.redeem(fake.prisma)).rejects.toMatchObject({ reason: "code_invalid" });
+  });
+
+  it("leaves the code unconsumed until the admission redeems it", async () => {
     const now = BASE;
     const fake = fakePrisma();
     const config = makeConfig(() => now);
@@ -298,9 +321,7 @@ describe("phone sign-in", () => {
     const code = (outcome as { reply: string }).reply;
 
     await verify(fake.prisma, config, { nonce: started.nonce, code });
-    await expect(verify(fake.prisma, config, { nonce: started.nonce, code })).rejects.toMatchObject(
-      { reason: "code_invalid" },
-    );
+    expect(fake.signins[0]!.consumedAt).toBeNull();
   });
 
   it("caps the doors one address can open", async () => {

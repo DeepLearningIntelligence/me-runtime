@@ -1,6 +1,9 @@
 import { createHmac } from "node:crypto";
+import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
 import type { WhatsAppRouterDeps } from "./whatsapp-router.js";
+import { EXPIRED_CODE_REPLY } from "./phone-signin/service.js";
+import { whatsAppSignInHandler } from "./phone-signin/index.js";
 import {
   createWhatsAppRouter,
   ME_NONCE_PATTERN,
@@ -96,6 +99,49 @@ function mount() {
 }
 
 describe("whatsapp router", () => {
+  it("answers a dead door once and stays silent on a replayed message id", async () => {
+    // The real phone sign-in handler over a store where every nonce is unknown.
+    const claimed = new Set<string>();
+    const tx = {
+      mePhoneSigninMessage: {
+        create: async ({ data }: { data: { provider: string; providerMessageId: string } }) => {
+          const key = `${data.provider}:${data.providerMessageId}`;
+          if (claimed.has(key)) throw { code: "P2002" };
+          claimed.add(key);
+          return data;
+        },
+      },
+      mePhoneSignin: { findUnique: async () => null },
+    };
+    const prisma = {
+      $transaction: async <T>(work: (client: typeof tx) => Promise<T>) => work(tx),
+    } as unknown as PrismaClient;
+    const openDirectThread = vi.fn<WhatsAppRouterDeps["messaging"]["openDirectThread"]>(
+      async () => "whatsapp:15550002222",
+    );
+    const sendToThread = vi.fn<WhatsAppRouterDeps["messaging"]["sendToThread"]>(async () => ({
+      handle: "wamid.outbound",
+    }));
+    const router = createWhatsAppRouter({
+      config: { whatsappAppSecret: APP_SECRET, whatsappBusinessNumber: BUSINESS_NUMBER },
+      signIn: whatsAppSignInHandler(prisma, { identityHashKey: "test-identity-key" }),
+      messaging: { handleWebhook: vi.fn(), openDirectThread, sendToThread },
+    });
+
+    const body = whatsappBody("ME-UNKNOWN9");
+    await router.handleWebhook(signedRequest(body));
+    // The unknown door gets exactly the dead-code answer, once.
+    expect(sendToThread).toHaveBeenCalledTimes(1);
+    expect(sendToThread.mock.calls[0]?.[0]).toMatchObject({
+      body: EXPIRED_CODE_REPLY,
+      idempotencyKey: "whatsapp:signin:wamid.test1",
+    });
+
+    // Meta's retry of the same message id claims nothing new: no second reply.
+    await router.handleWebhook(signedRequest(body));
+    expect(sendToThread).toHaveBeenCalledTimes(1);
+  });
+
   it("routes a sign-in nonce to phone sign-in and never to an agent", async () => {
     const { router, signIn, handleWebhook, sendToThread } = mount();
 
