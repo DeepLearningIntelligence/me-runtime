@@ -289,7 +289,21 @@ describe("phone sign-in", () => {
     expect(fake.signins).toHaveLength(0);
   });
 
-  it("redeems a code once", async () => {
+  it("redeems a code once, through the admission's redemption", async () => {
+    const now = BASE;
+    const fake = fakePrisma();
+    const config = makeConfig(() => now);
+    const started = await start(fake.prisma, config, {});
+    const outcome = await bind(fake, config, started.nonce, "15550001000", "wamid.first");
+    const code = (outcome as { reply: string }).reply;
+
+    const first = await verify(fake.prisma, config, { nonce: started.nonce, code });
+    await first.redeem(fake.prisma);
+    const second = await verify(fake.prisma, config, { nonce: started.nonce, code });
+    await expect(second.redeem(fake.prisma)).rejects.toMatchObject({ reason: "code_invalid" });
+  });
+
+  it("leaves the code unconsumed until the admission redeems it", async () => {
     const now = BASE;
     const fake = fakePrisma();
     const config = makeConfig(() => now);
@@ -298,9 +312,7 @@ describe("phone sign-in", () => {
     const code = (outcome as { reply: string }).reply;
 
     await verify(fake.prisma, config, { nonce: started.nonce, code });
-    await expect(verify(fake.prisma, config, { nonce: started.nonce, code })).rejects.toMatchObject(
-      { reason: "code_invalid" },
-    );
+    expect(fake.signins[0]!.consumedAt).toBeNull();
   });
 
   it("caps the doors one address can open", async () => {

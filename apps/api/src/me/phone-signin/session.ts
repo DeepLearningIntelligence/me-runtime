@@ -1,13 +1,16 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Auth } from "@rakazo/auth";
 import { CLIENT_IP_HEADER } from "@rakazo/auth";
-import type { PrismaClient, SignupPolicyEnv } from "@rakazo/db";
+import type { Prisma, PrismaClient, SignupPolicyEnv } from "@rakazo/db";
 import { bootstrapUserSpace, isUniqueViolation, runAsSystem } from "@rakazo/db";
 import { redeemInviteByHash } from "../invitations/invitations.js";
 import { PhoneSigninError } from "./service.js";
 
 /** The undeliverable email domain a phone-created person carries until onboarding connects one. */
 export const PHONE_EMAIL_DOMAIN = "phone.invalid";
+
+/** The one redemption the door's verified result carries; see `service.ts`. */
+export type CodeRedemption = (client: Prisma.TransactionClient | PrismaClient) => Promise<void>;
 
 /**
  * The fork's own person and session, reached from a verified phone.
@@ -48,6 +51,14 @@ export function phoneUserId(phoneHash: string): string {
  * invite hash is the one the pending row carried: null admits only a person
  * who already exists.
  *
+ * The code's redemption runs inside the same transaction as the person it
+ * admits, so a refusal (`invite_required`, an invite the invitations service
+ * cannot claim) rolls the consume back and the code stays usable; a returning
+ * person, or a racer joining a concurrent winner, redeems right before the
+ * session, where the conditional update still makes it single use. Of two
+ * parallel redemptions exactly one wins; the loser is refused with
+ * `code_invalid` before a session is issued.
+ *
  * A concurrent first sign-in for the same phone may create the person first.
  * Postgres aborts a transaction whose statement errored, so the loser cannot
  * read inside its own transaction; it retries the whole admission in a fresh
@@ -61,7 +72,8 @@ export async function signInVerifiedPhone(
   env: SignupPolicyEnv,
   phoneHash: string,
   request: { ipAddress?: string; userAgent?: string } = {},
-  inviteTokenHash?: string | null,
+  inviteTokenHash: string | null,
+  redeem: CodeRedemption,
 ): Promise<VerifiedPersonSession> {
   const userId = phoneUserId(phoneHash);
   let found = await prisma.user.findUnique({ where: { id: userId } });
@@ -72,6 +84,9 @@ export async function signInVerifiedPhone(
     try {
       const created = await runAsSystem("phone sign-in: admit the invited person", () =>
         prisma.$transaction(async (tx) => {
+          // The code's redemption commits or rolls back with the person it
+          // admits: a refused admission leaves the code usable.
+          await redeem(tx);
           const created = await tx.user.create({
             data: {
               id: userId,
@@ -106,6 +121,9 @@ export async function signInVerifiedPhone(
       if (!found) throw error;
     }
   }
+  // A person the transaction did not create (a returning person, or a racer
+  // joining the winner) redeems here: single use, before any session.
+  if (!createdHere) await redeem(prisma);
   if (createdHere) await auth.recordUserCreated(found, "phone");
 
   const headers = new Headers();

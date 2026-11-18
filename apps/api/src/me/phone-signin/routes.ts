@@ -86,17 +86,18 @@ export function mountPhoneSigninRoutes(
     const code = typeof parsed.code === "string" ? parsed.code : undefined;
     if (!nonce || !code) return refusal(c, "invalid_input", 400);
     try {
-      const { phoneHash, inviteTokenHash } = await verify(deps.prisma, config, { nonce, code });
+      const verified = await verify(deps.prisma, config, { nonce, code });
       const person = await signInVerifiedPhone(
         deps.prisma,
         deps.auth,
         deps.env,
-        phoneHash,
+        verified.phoneHash,
         {
           ipAddress: deps.clientIp(c),
           userAgent: c.req.header("user-agent"),
         },
-        inviteTokenHash,
+        verified.inviteTokenHash,
+        verified.redeem,
       );
       await setSessionCookie(c, deps.auth, person.token, person.expiresAt);
       return c.json({ ok: true });

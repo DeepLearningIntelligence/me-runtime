@@ -2,7 +2,9 @@ import type { PrismaClient, SignupPolicyEnv } from "@rakazo/db";
 import { bootstrapUserSpace } from "@rakazo/db";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InviteError } from "../invitations/invitations.js";
+import { sha256Hex } from "./codes.js";
 import { hashIdentifier } from "./identity.js";
+import { verify } from "./service.js";
 import { phoneUserId, signInVerifiedPhone } from "./session.js";
 
 // Only bootstrapUserSpace is replaced; every other export of the module stays
@@ -37,6 +39,18 @@ const TX_ABORTED = {
 
 type UserRow = { id: string; name: string; email: string };
 
+type SigninRow = {
+  id: string;
+  nonceHash: string;
+  phoneHash: string;
+  inviteTokenHash: string | null;
+  codeHash: string;
+  boundAt: Date;
+  consumedAt: Date | null;
+  expiresAt: Date;
+  attempts: number;
+};
+
 type InviteRow = {
   id: string;
   inviterId: string;
@@ -49,6 +63,7 @@ type AuthEvent = { type: string; userId: string; via: string | null };
 
 function fakePrisma(invites: InviteRow[] = [], options: { concurrentWinner?: boolean } = {}) {
   const users: UserRow[] = [];
+  const signins: SigninRow[] = [];
   const members: string[] = [];
   const quota = { userId: INVITER, allocation: 10, redeemedCount: 0 };
   const events: AuthEvent[] = [];
@@ -89,6 +104,32 @@ function fakePrisma(invites: InviteRow[] = [], options: { concurrentWinner?: boo
       if (findUser(data.id)) throw { code: "P2002" };
       users.push({ ...data });
       return { ...data };
+    },
+  };
+
+  // The door's rows, as verify() and the admission's redemption read and write
+  // them: the charge is conditional on the attempt bound, the redemption on
+  // `consumedAt` still being null.
+  const mePhoneSignin = {
+    findUnique: async ({ where }: { where: { nonceHash: string } }) =>
+      signins.find((row) => row.nonceHash === where.nonceHash) ?? null,
+    updateMany: async ({
+      where,
+      data,
+    }: {
+      where: { id: string; consumedAt?: null; attempts?: { lt: number } };
+      data: { consumedAt?: Date; attempts?: { increment: number } };
+    }) => {
+      let count = 0;
+      for (const row of signins) {
+        if (row.id !== where.id) continue;
+        if (where.consumedAt === null && row.consumedAt !== null) continue;
+        if (where.attempts && row.attempts >= where.attempts.lt) continue;
+        if (data.attempts) row.attempts += data.attempts.increment;
+        if (data.consumedAt) row.consumedAt = data.consumedAt;
+        count += 1;
+      }
+      return { count };
     },
   };
 
@@ -138,9 +179,11 @@ function fakePrisma(invites: InviteRow[] = [], options: { concurrentWinner?: boo
     spaceMember,
     meInvite,
     meInviteQuota,
+    mePhoneSignin,
     $transaction: async <T>(work: (tx: unknown) => Promise<T>): Promise<T> => {
       // Rollback semantics: a throw leaves none of the transaction's writes.
       const usersBefore = users.length;
+      const signinsBefore = signins.map((row) => ({ ...row }));
       const invitesBefore = invites.map((invite) => ({ ...invite }));
       const redeemedBefore = quota.redeemedCount;
       let aborted = false;
@@ -171,9 +214,12 @@ function fakePrisma(invites: InviteRow[] = [], options: { concurrentWinner?: boo
             findUnique: step(meInviteQuota.findUnique),
             updateMany: step(meInviteQuota.updateMany),
           },
+          mePhoneSignin: { updateMany: step(mePhoneSignin.updateMany) },
         });
       } catch (error) {
         users.length = usersBefore;
+        signins.length = 0;
+        signinsBefore.forEach((row) => signins.push({ ...row }));
         invitesBefore.forEach((snapshot, index) => {
           const invite = invites[index];
           if (invite) Object.assign(invite, snapshot);
@@ -202,7 +248,7 @@ function fakePrisma(invites: InviteRow[] = [], options: { concurrentWinner?: boo
     return { spaceId: `space-for-${person.id}` };
   });
 
-  return { prisma, auth, users, invites, quota, bootstrap, events };
+  return { prisma, auth, users, signins, invites, quota, bootstrap, events };
 }
 
 function issuedInvite(): InviteRow {
@@ -215,6 +261,29 @@ function issuedInvite(): InviteRow {
   };
 }
 
+/** A noop redemption for tests that do not exercise the code's consume. */
+const noopRedeem = async () => {};
+
+const NOW = Date.parse("2026-11-18T12:00:00Z");
+const NONCE = "ME-TESTNONCE1";
+const CODE = "654321";
+const config = { identityHashKey: "test-key", now: () => NOW };
+
+function boundSignin(overrides: Partial<SigninRow> = {}): SigninRow {
+  return {
+    id: "row-1",
+    nonceHash: sha256Hex(NONCE),
+    phoneHash: PHONE_HASH,
+    inviteTokenHash: null,
+    codeHash: sha256Hex(CODE),
+    boundAt: new Date(NOW - 60_000),
+    consumedAt: null,
+    expiresAt: new Date(NOW + 5 * 60_000),
+    attempts: 0,
+    ...overrides,
+  };
+}
+
 describe("phone door admission", () => {
   beforeEach(() => {
     vi.mocked(bootstrapUserSpace).mockReset();
@@ -224,10 +293,52 @@ describe("phone door admission", () => {
     const fake = fakePrisma([]);
 
     await expect(
-      signInVerifiedPhone(fake.prisma, fake.auth, env, PHONE_HASH, {}, null),
+      signInVerifiedPhone(fake.prisma, fake.auth, env, PHONE_HASH, {}, null, noopRedeem),
     ).rejects.toMatchObject({ reason: "invite_required" });
     expect(fake.users).toHaveLength(0);
     expect(fake.bootstrap).not.toHaveBeenCalled();
+  });
+
+  it("keeps a correct code usable when admission refuses, then redeems the same code once invited", async () => {
+    const fake = fakePrisma([issuedInvite()]);
+    fake.signins.push(boundSignin());
+
+    const refused = await verify(fake.prisma, config, { nonce: NONCE, code: CODE });
+    await expect(
+      signInVerifiedPhone(fake.prisma, fake.auth, env, PHONE_HASH, {}, null, refused.redeem),
+    ).rejects.toMatchObject({ reason: "invite_required" });
+    // The refusal consumed nothing: the code is still redeemable.
+    expect(fake.signins[0]!.consumedAt).toBeNull();
+    expect(fake.users).toHaveLength(0);
+
+    // The same nonce, now carrying the invite hash, admits the person on the same code.
+    fake.signins[0]!.inviteTokenHash = INVITE_HASH;
+    const invited = await verify(fake.prisma, config, { nonce: NONCE, code: CODE });
+    const session = await signInVerifiedPhone(
+      fake.prisma,
+      fake.auth,
+      env,
+      PHONE_HASH,
+      {},
+      INVITE_HASH,
+      invited.redeem,
+    );
+    expect(session.userId).toBe(USER_ID);
+    expect(fake.signins[0]!.consumedAt).not.toBeNull();
+    expect(fake.invites[0]!.status).toBe("redeemed");
+  });
+
+  it("rolls the code's consume back when the invite cannot be claimed", async () => {
+    const spent = { ...issuedInvite(), status: "redeemed" };
+    const fake = fakePrisma([spent]);
+    fake.signins.push(boundSignin({ inviteTokenHash: INVITE_HASH }));
+
+    const verified = await verify(fake.prisma, config, { nonce: NONCE, code: CODE });
+    await expect(
+      signInVerifiedPhone(fake.prisma, fake.auth, env, PHONE_HASH, {}, INVITE_HASH, verified.redeem),
+    ).rejects.toMatchObject({ reason: "already_redeemed" });
+    expect(fake.signins[0]!.consumedAt).toBeNull();
+    expect(fake.users).toHaveLength(0);
   });
 
   it("creates exactly one account with a valid invite and spends it once", async () => {
@@ -240,6 +351,7 @@ describe("phone door admission", () => {
       PHONE_HASH,
       {},
       INVITE_HASH,
+      noopRedeem,
     );
 
     expect(session.userId).toBe(USER_ID);
@@ -255,7 +367,7 @@ describe("phone door admission", () => {
     // is refused with the invitations service's own reason and writes no user.
     const otherHash = hashIdentifier("phone", "k", "15550002000");
     await expect(
-      signInVerifiedPhone(fake.prisma, fake.auth, env, otherHash, {}, INVITE_HASH),
+      signInVerifiedPhone(fake.prisma, fake.auth, env, otherHash, {}, INVITE_HASH, noopRedeem),
     ).rejects.toBeInstanceOf(InviteError);
     expect(fake.users).toHaveLength(1);
     expect(fake.quota.redeemedCount).toBe(1);
@@ -273,6 +385,7 @@ describe("phone door admission", () => {
       PHONE_HASH,
       {},
       INVITE_HASH,
+      noopRedeem,
     );
 
     // The loser joins the winner's committed row instead of surfacing the
@@ -291,7 +404,7 @@ describe("phone door admission", () => {
     const fake = fakePrisma([spent]);
 
     await expect(
-      signInVerifiedPhone(fake.prisma, fake.auth, env, PHONE_HASH, {}, INVITE_HASH),
+      signInVerifiedPhone(fake.prisma, fake.auth, env, PHONE_HASH, {}, INVITE_HASH, noopRedeem),
     ).rejects.toMatchObject({ reason: "already_redeemed" });
     expect(fake.users).toHaveLength(0);
     expect(fake.bootstrap).not.toHaveBeenCalled();
@@ -301,7 +414,15 @@ describe("phone door admission", () => {
     const fake = fakePrisma([issuedInvite()]);
     fake.users.push({ id: USER_ID, name: "Phone person", email: "phone-x@phone.invalid" });
 
-    const session = await signInVerifiedPhone(fake.prisma, fake.auth, env, PHONE_HASH, {}, null);
+    const session = await signInVerifiedPhone(
+      fake.prisma,
+      fake.auth,
+      env,
+      PHONE_HASH,
+      {},
+      null,
+      noopRedeem,
+    );
 
     expect(session.token).toBe(`token-for-${USER_ID}`);
     expect(fake.users).toHaveLength(1);
