@@ -150,13 +150,19 @@ export async function signInVerifiedPhone(
  * a different phone. The code's redemption rides in the same transaction, so a
  * refused attach leaves the code usable, and the conditional update makes it
  * single use against a concurrent redemption.
+ *
+ * `startedFor` is the link intent the pending row recorded at start: when the
+ * door was opened as a link by a signed-in person, only that person may redeem
+ * it (`session_mismatch`, 403); the row is the authority, never the request.
  */
 export async function linkVerifiedPhone(
   prisma: PrismaClient,
   phoneHash: string,
   userId: string,
+  startedFor: string | null,
   redeem: CodeRedemption,
 ): Promise<void> {
+  if (startedFor && startedFor !== userId) throw new PhoneSigninError("session_mismatch");
   try {
     await prisma.$transaction(async (tx) => {
       const holder = await tx.user.findUnique({ where: { phoneHash } });

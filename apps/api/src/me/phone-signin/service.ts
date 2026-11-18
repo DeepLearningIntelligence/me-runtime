@@ -65,6 +65,7 @@ export type PhoneSigninFailure =
   | "code_expired"
   | "already_bound"
   | "phone_mismatch"
+  | "session_mismatch"
   | "code_invalid"
   | "too_many_attempts"
   | "invite_required"
@@ -114,6 +115,12 @@ export type VerifiedPhone = {
    */
   inviteTokenHash: string | null;
   /**
+   * The signed-in person a link door was opened for; null for a sign-in door.
+   * The link redemption checks this against the verifying session: the row is
+   * the authority, never the request.
+   */
+  linkUserId: string | null;
+  /**
    * The code's one redemption, to run inside the caller's admission
    * transaction: a refused admission rolls the consume back and the code stays
    * usable. Refuses with `code_invalid` when the code is already redeemed, so
@@ -141,7 +148,13 @@ export function requirePhoneValue(phone: string): string {
 export async function start(
   prisma: PrismaClient,
   config: PhoneSigninConfig,
-  input: { phone?: string; inviteToken?: string; ipAddress?: string } = {},
+  input: {
+    phone?: string;
+    inviteToken?: string;
+    /** The signed-in person opening the door as a phone link; a link door only. */
+    linkUserId?: string;
+    ipAddress?: string;
+  } = {},
 ): Promise<StartedSignin> {
   if (!config.identityHashKey) throw new PhoneSigninError("identity_key_missing");
 
@@ -170,6 +183,7 @@ export async function start(
       nonceHash: sha256Hex(nonce),
       phoneHash,
       inviteTokenHash: inviteToken ? hashInviteToken(inviteToken) : null,
+      linkUserId: input.linkUserId ?? null,
       expiresAt,
       ipAddress,
     },
@@ -288,6 +302,7 @@ export async function verify(
   return {
     phoneHash: row.phoneHash,
     inviteTokenHash: row.inviteTokenHash ?? null,
+    linkUserId: row.linkUserId ?? null,
     redeem: (client) => redeemCode(client, row.id, now),
   };
 }

@@ -2811,6 +2811,10 @@ model MePhoneSignin {
   /// SHA-256 of the invite link token the door was opened with; creating the
   /// person at verify time requires it, a person who exists does not.
   inviteTokenHash String?
+  /// The signed-in person who opened this door as a phone link (`link: true`);
+  /// null for a sign-in door. At verify, a link door redeems for this person
+  /// and nobody else: the row is the authority, not the request.
+  linkUserId String?
   /// When the nonce was bound to a phone; a bound row never binds again.
   boundAt   DateTime?
   /// Set when the code verifies, so a code is redeemed once.

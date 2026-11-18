@@ -18,6 +18,7 @@ type SigninRow = {
   nonceHash: string;
   phoneHash: string | null;
   inviteTokenHash: string | null;
+  linkUserId: string | null;
   codeHash: string | null;
   boundAt: Date | null;
   consumedAt: Date | null;
@@ -68,6 +69,7 @@ function fakePrisma() {
         id: `row-${nextId++}`,
         phoneHash: null,
         inviteTokenHash: null,
+        linkUserId: null,
         codeHash: null,
         boundAt: null,
         consumedAt: null,

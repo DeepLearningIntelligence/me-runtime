@@ -29,6 +29,7 @@ const REFUSAL_STATUS: Record<string, { status: Status }> = {
   code_expired: { status: 410 },
   already_bound: { status: 409 },
   phone_mismatch: { status: 403 },
+  session_mismatch: { status: 403 },
   code_invalid: { status: 400 },
   too_many_attempts: { status: 429 },
   // Account creation through the phone door is invite-only; the named reasons
@@ -56,7 +57,12 @@ export function mountPhoneSigninRoutes(
     const parsed = await parseBody(c);
     if (!parsed) return refusal(c, "invalid_input", 400);
     const link = parsed.link === true;
-    if (link && !(await sessionUserId(deps, c))) return refusal(c, "unauthorized", 401);
+    // A signed-out caller is refused before any row exists or a code is read.
+    let linkUserId: string | undefined;
+    if (link) {
+      linkUserId = await sessionUserId(deps, c);
+      if (!linkUserId) return refusal(c, "unauthorized", 401);
+    }
     const phone =
       typeof parsed.phone === "string" && parsed.phone.trim() ? parsed.phone.trim() : undefined;
     const inviteToken =
@@ -67,6 +73,7 @@ export function mountPhoneSigninRoutes(
       const started = await start(deps.prisma, config, {
         phone,
         inviteToken,
+        linkUserId,
         ipAddress: deps.clientIp(c),
       });
       return c.json({
@@ -101,8 +108,15 @@ export function mountPhoneSigninRoutes(
       const verified = await verify(deps.prisma, config, { nonce, code });
       if (link) {
         // A signed-in person attaches the verified phone to their own account
-        // instead of creating one; the door's invite hash plays no part here.
-        await linkVerifiedPhone(deps.prisma, verified.phoneHash, linkUserId!, verified.redeem);
+        // instead of creating one; the door's invite hash plays no part here,
+        // and a link door redeems only for the person who opened it.
+        await linkVerifiedPhone(
+          deps.prisma,
+          verified.phoneHash,
+          linkUserId!,
+          verified.linkUserId,
+          verified.redeem,
+        );
         return c.json({ ok: true, linked: true });
       }
       const person = await signInVerifiedPhone(

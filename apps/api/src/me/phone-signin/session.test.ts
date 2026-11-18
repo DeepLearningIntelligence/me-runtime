@@ -44,6 +44,7 @@ type SigninRow = {
   nonceHash: string;
   phoneHash: string;
   inviteTokenHash: string | null;
+  linkUserId: string | null;
   codeHash: string;
   boundAt: Date;
   consumedAt: Date | null;
@@ -299,6 +300,7 @@ function boundSignin(overrides: Partial<SigninRow> = {}): SigninRow {
     nonceHash: sha256Hex(NONCE),
     phoneHash: PHONE_HASH,
     inviteTokenHash: null,
+    linkUserId: null,
     codeHash: sha256Hex(CODE),
     boundAt: new Date(NOW - 60_000),
     consumedAt: null,
@@ -511,7 +513,7 @@ describe("phone door admission", () => {
       if (redeemed.count !== 1) throw Object.assign(new Error("code_invalid"), { reason: "code_invalid" });
     });
 
-    await linkVerifiedPhone(fake.prisma, PHONE_HASH, "owner-1", redeem);
+    await linkVerifiedPhone(fake.prisma, PHONE_HASH, "owner-1", null, redeem);
 
     expect(fake.users[0]!.phoneHash).toBe(PHONE_HASH);
     // The attach redeemed the code inside its own transaction.
@@ -526,7 +528,7 @@ describe("phone door admission", () => {
     fake.signins.push(boundSignin());
 
     await expect(
-      linkVerifiedPhone(fake.prisma, PHONE_HASH, "owner-1", noopRedeem),
+      linkVerifiedPhone(fake.prisma, PHONE_HASH, "owner-1", null, noopRedeem),
     ).rejects.toMatchObject({ reason: "already_bound" });
     expect(fake.users[1]!.phoneHash).toBeUndefined();
     // The refusal rolled the consume back.
@@ -541,7 +543,7 @@ describe("phone door admission", () => {
     fake.signins.push(boundSignin());
 
     await expect(
-      linkVerifiedPhone(fake.prisma, PHONE_HASH, "owner-1", noopRedeem),
+      linkVerifiedPhone(fake.prisma, PHONE_HASH, "owner-1", null, noopRedeem),
     ).rejects.toMatchObject({ reason: "already_bound" });
     expect(fake.users[1]!.phoneHash).toBeUndefined();
   });
@@ -557,8 +559,30 @@ describe("phone door admission", () => {
     fake.signins.push(boundSignin());
 
     await expect(
-      linkVerifiedPhone(fake.prisma, PHONE_HASH, "owner-1", noopRedeem),
+      linkVerifiedPhone(fake.prisma, PHONE_HASH, "owner-1", null, noopRedeem),
     ).rejects.toMatchObject({ reason: "already_bound" });
     expect(fake.users[0]!.phoneHash).toBe("b".repeat(64));
+  });
+
+  it("refuses a link door redeemed by a different signed-in person, leaving the code usable", async () => {
+    const fake = fakePrisma([]);
+    fake.users.push({ id: "opener-1", name: "Opener", email: "opener@x.test" });
+    fake.users.push({ id: "other-1", name: "Other", email: "other@x.test" });
+    // The door was opened as a link by the opener's session; the row is the
+    // authority, so no other signed-in person may redeem it.
+    fake.signins.push(boundSignin({ linkUserId: "opener-1" }));
+    const redeem = vi.fn(async () => {});
+
+    await expect(
+      linkVerifiedPhone(fake.prisma, PHONE_HASH, "other-1", "opener-1", redeem),
+    ).rejects.toMatchObject({ reason: "session_mismatch" });
+    expect(redeem).not.toHaveBeenCalled();
+    expect(fake.users[1]!.phoneHash).toBeUndefined();
+    expect(fake.signins[0]!.consumedAt).toBeNull();
+
+    // The opener redeems their own door.
+    fake.users[0]!.phoneHash = undefined;
+    await linkVerifiedPhone(fake.prisma, PHONE_HASH, "opener-1", "opener-1", noopRedeem);
+    expect(fake.users[0]!.phoneHash).toBe(PHONE_HASH);
   });
 });

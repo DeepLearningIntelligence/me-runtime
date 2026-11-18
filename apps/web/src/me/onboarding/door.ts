@@ -24,6 +24,7 @@ export type DoorFailureReason =
   | "code_expired"
   | "already_bound"
   | "phone_mismatch"
+  | "session_mismatch"
   | "code_invalid"
   | "too_many_attempts"
   | "invite_required"
@@ -112,6 +113,7 @@ export function doorFailureText(error: unknown): string {
     code_invalid: t`That code is not right. Check the newest WhatsApp message.`,
     already_bound: t`This code was already used. Start again.`,
     phone_mismatch: t`The code came from a different number. Start again.`,
+    session_mismatch: t`This link was opened for a different sign-in. Start again.`,
     invalid_phone: t`That phone number does not look right.`,
     whatsapp_not_configured: t`WhatsApp sign-in is not set up on this server yet.`,
     identity_key_missing: t`Sign-in is not configured on this server yet.`,
