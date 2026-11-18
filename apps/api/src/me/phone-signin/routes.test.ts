@@ -14,7 +14,9 @@ import { mountPhoneSigninRoutes } from "./routes.js";
  * makes, so the mode refusals and both completions are exercised end to end.
  */
 
-const NOW = Date.parse("2026-11-18T12:00:00Z");
+// Relative to the run, not a fixed instant: a hard-coded NOW made every fixture
+// expire at midnight on the day it was written, and the suite went red the next day.
+const NOW = Date.now();
 const NONCE = "ME-TESTNONCE1";
 const CODE = "654321";
 const PHONE_HASH = "e".repeat(64);
