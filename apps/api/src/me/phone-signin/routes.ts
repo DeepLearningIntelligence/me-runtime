@@ -73,6 +73,9 @@ export function mountPhoneSigninRoutes(
         ok: true,
         nonce: started.nonce,
         waLink: whatsAppDeepLink(deps.env, started.nonce),
+        // The configured business number, for the fallback when the link does
+        // not open WhatsApp (F5); the deep link is built from the same value.
+        businessNumber: deps.env.whatsappBusinessNumber,
         expiresAt: started.expiresAt.toISOString(),
         ttlMs: CODE_TTL_MS,
       });

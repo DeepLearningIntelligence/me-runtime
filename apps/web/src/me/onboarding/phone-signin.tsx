@@ -28,6 +28,7 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
   const [code, setCode] = useState("");
   const [pending, setPending] = useState(false);
   const [refusal, setRefusal] = useState<DoorRefusal | null>(null);
+  const [copied, setCopied] = useState(false);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -36,6 +37,24 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
       mounted.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  async function copyCode() {
+    if (!door) return;
+    try {
+      await navigator.clipboard.writeText(door.nonce);
+      setCopied(true);
+    } catch {
+      // No clipboard access: the button keeps saying Copy, the code stays on
+      // screen to send by hand.
+      setCopied(false);
+    }
+  }
 
   async function openDoor() {
     if (pending) return;
@@ -99,6 +118,22 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
               Send the pre-filled message. Your code arrives in WhatsApp and expires in {minutes}{" "}
               minutes.
             </Trans>
+          </p>
+          <p className="mt-6 w-full text-center text-heading2 font-medium tracking-wide">
+            {door.nonce}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            aria-label={t({ message: "Copy sign-in code", context: "WhatsApp sign-in" })}
+            onClick={() => void copyCode()}
+          >
+            {copied ? <Trans>Copied</Trans> : <Trans>Copy</Trans>}
+          </Button>
+          <p className="mt-2 w-full text-center text-body text-muted-foreground">
+            <Trans>Or send this code on WhatsApp to {door.businessNumber}</Trans>
           </p>
           <div className="mt-6 flex w-full justify-center">
             <InputOTP

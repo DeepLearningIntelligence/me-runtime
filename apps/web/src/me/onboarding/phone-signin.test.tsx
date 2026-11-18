@@ -34,7 +34,15 @@ vi.mock("@rakazo/ui-web", () => ({
     ) : (
       <button {...props}>{children}</button>
     ),
-  InputOTP: ({ value, onChange, children: _children, ...props }: ComponentProps<"input">) => (
+  InputOTP: ({
+    value,
+    onChange,
+    children: _children,
+    ...props
+  }: Omit<ComponentProps<"input">, "onChange"> & {
+    value: string;
+    onChange?: (value: string) => void;
+  }) => (
     <input
       {...props}
       value={value}
@@ -57,6 +65,7 @@ vi.mock("./door", async (importOriginal) => {
 const DOOR: StartedDoor = {
   nonce: "ME-TESTNONCE1",
   waLink: "https://wa.me/15550001111?text=ME-TESTNONCE1",
+  businessNumber: "+1 555 000 1111",
   expiresAt: new Date(Date.now() + 600_000).toISOString(),
   ttlMs: 600_000,
 };
@@ -125,4 +134,21 @@ it("keeps an invite refusal on screen when a later code fails on the same door",
   // A fresh door clears it.
   await click("Start over");
   expect(host.querySelector("[role=alert]")).toBeNull();
+});
+
+it("shows the code to send by hand, with a labelled copy button, and the business number", async () => {
+  startPhoneDoor.mockResolvedValue(DOOR);
+  const writeText = vi.fn(async () => {});
+  Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+  await render();
+  await click("Continue");
+  expect(host.textContent).toContain(DOOR.nonce);
+  expect(host.textContent).toContain("Or send this code on WhatsApp to +1 555 000 1111");
+
+  const copy = host.querySelector<HTMLButtonElement>('button[aria-label="Copy sign-in code"]')!;
+  expect(copy).not.toBeNull();
+  await act(async () => copy.click());
+  expect(writeText).toHaveBeenCalledWith(DOOR.nonce);
+  expect(copy.textContent).toBe("Copied");
 });

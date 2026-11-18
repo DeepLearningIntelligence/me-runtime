@@ -27,6 +27,7 @@ it("sends the invite token with the start call, because admission is invite-only
       ok: true,
       nonce: "ME-ABC123",
       waLink: "https://wa.me/15550001?text=ME-ABC123",
+      businessNumber: "+1 555 000 1111",
       expiresAt: "2026-11-17T00:10:00.000Z",
       ttlMs: 600_000,
     }),
@@ -40,7 +41,14 @@ it("sends the invite token with the start call, because admission is invite-only
 
 it("opens a door with no token when a returning person signs in", async () => {
   fetchMock.mockReturnValue(
-    jsonReply(200, { ok: true, nonce: "N", waLink: "w", expiresAt: "", ttlMs: 1 }),
+    jsonReply(200, {
+      ok: true,
+      nonce: "N",
+      waLink: "w",
+      businessNumber: "n",
+      expiresAt: "",
+      ttlMs: 1,
+    }),
   );
   await startPhoneDoor();
   expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toEqual({});
@@ -52,6 +60,21 @@ it("sends the nonce and code with the verify call and nothing else", async () =>
   const [url, init] = fetchMock.mock.calls[0]!;
   expect(url).toBe("/api/auth/phone/verify");
   expect(JSON.parse(String(init?.body))).toEqual({ nonce: "ME-ABC123", code: "123456" });
+});
+
+it("carries the business number the server configured", async () => {
+  fetchMock.mockReturnValue(
+    jsonReply(200, {
+      ok: true,
+      nonce: "ME-ABC123",
+      waLink: "https://wa.me/15550001?text=ME-ABC123",
+      businessNumber: "+1 555 000 1111",
+      expiresAt: "2026-11-17T00:10:00.000Z",
+      ttlMs: 600_000,
+    }),
+  );
+  const started = await startPhoneDoor({ inviteToken: "tok_en1" });
+  expect(started.businessNumber).toBe("+1 555 000 1111");
 });
 
 it("refuses by the server's named reason", async () => {

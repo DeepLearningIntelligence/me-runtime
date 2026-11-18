@@ -40,6 +40,11 @@ export type StartedDoor = {
   nonce: string;
   /** The wa.me link carrying `ME-<nonce>`; the person taps it and sends the message. */
   waLink: string;
+  /**
+   * The business number as the deployment configures it, shown with the code so
+   * a link that will not open WhatsApp still has somewhere to send it.
+   */
+  businessNumber: string;
   expiresAt: string;
   ttlMs: number;
 };
