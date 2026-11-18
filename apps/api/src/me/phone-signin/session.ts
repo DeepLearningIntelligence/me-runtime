@@ -51,6 +51,12 @@ export function phoneUserId(phoneHash: string): string {
  * invite hash is the one the pending row carried: null admits only a person
  * who already exists.
  *
+ * The phone resolves to one person two ways, one owner each: the hash a
+ * linked account carries (`user.phoneHash`, attached by the owner bootstrap or
+ * the signed-in link), then the derived id a phone-created person has always
+ * carried. Both are pure functions of the hash, so they can never name two
+ * people for one phone.
+ *
  * The code's redemption runs inside the same transaction as the person it
  * admits, so a refusal (`invite_required`, an invite the invitations service
  * cannot claim) rolls the consume back and the code stays usable; a returning
@@ -76,7 +82,8 @@ export async function signInVerifiedPhone(
   redeem: CodeRedemption,
 ): Promise<VerifiedPersonSession> {
   const userId = phoneUserId(phoneHash);
-  let found = await prisma.user.findUnique({ where: { id: userId } });
+  let found = await prisma.user.findUnique({ where: { phoneHash } });
+  if (!found) found = await prisma.user.findUnique({ where: { id: userId } });
   if (!found && !inviteTokenHash) throw new PhoneSigninError("invite_required");
 
   let createdHere = false;
@@ -92,6 +99,7 @@ export async function signInVerifiedPhone(
               id: userId,
               name: "Phone person",
               email: `phone-${randomBytes(16).toString("hex")}@${PHONE_EMAIL_DOMAIN}`,
+              phoneHash,
             },
           });
           // One invite, one account: the redemption is in the same transaction
@@ -131,4 +139,46 @@ export async function signInVerifiedPhone(
   if (request.ipAddress) headers.set(CLIENT_IP_HEADER, request.ipAddress);
   const issued = await auth.issueSession(found.id, { headers });
   return { userId: found.id, token: issued.token, expiresAt: issued.expiresAt };
+}
+
+/**
+ * Attaches a verified phone to a signed-in person instead of creating one: the
+ * owner bootstrap and the signed-in link both land here, on the same rule. One
+ * phone stays one person, so the attach refuses with `already_bound` when the
+ * phone is held by someone else (a linked account or a phone-created person
+ * whose account predates the hash column), and when the person already carries
+ * a different phone. The code's redemption rides in the same transaction, so a
+ * refused attach leaves the code usable, and the conditional update makes it
+ * single use against a concurrent redemption.
+ */
+export async function linkVerifiedPhone(
+  prisma: PrismaClient,
+  phoneHash: string,
+  userId: string,
+  redeem: CodeRedemption,
+): Promise<void> {
+  try {
+    await prisma.$transaction(async (tx) => {
+      const holder = await tx.user.findUnique({ where: { phoneHash } });
+      if (holder && holder.id !== userId) throw new PhoneSigninError("already_bound");
+      const legacy = await tx.user.findUnique({ where: { id: phoneUserId(phoneHash) } });
+      if (legacy && legacy.id !== userId) throw new PhoneSigninError("already_bound");
+      await redeem(tx);
+      const attached = await tx.user.updateMany({
+        where: { id: userId, phoneHash: null },
+        data: { phoneHash },
+      });
+      if (attached.count !== 1) {
+        const person = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+        // Their own phone again is a no-op; a different one is already bound.
+        if (person.phoneHash === phoneHash) return;
+        throw new PhoneSigninError("already_bound");
+      }
+    });
+  } catch (error) {
+    // Two people racing to link one phone: the unique constraint is the
+    // backstop, and the loser is refused by name.
+    if (isUniqueViolation(error)) throw new PhoneSigninError("already_bound");
+    throw error;
+  }
 }

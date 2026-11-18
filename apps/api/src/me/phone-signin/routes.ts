@@ -8,7 +8,7 @@ import { InviteError } from "../invitations/invitations.js";
 import { whatsAppDeepLink } from "../whatsapp-router.js";
 import { CODE_TTL_MS } from "./codes.js";
 import { PhoneSigninError, start, verify } from "./service.js";
-import { signInVerifiedPhone } from "./session.js";
+import { linkVerifiedPhone, signInVerifiedPhone } from "./session.js";
 
 /**
  * The phone door's HTTP half, mounted beside the auth routes so a person signs
@@ -55,6 +55,8 @@ export function mountPhoneSigninRoutes(
     }
     const parsed = await parseBody(c);
     if (!parsed) return refusal(c, "invalid_input", 400);
+    const link = parsed.link === true;
+    if (link && !(await sessionUserId(deps, c))) return refusal(c, "unauthorized", 401);
     const phone =
       typeof parsed.phone === "string" && parsed.phone.trim() ? parsed.phone.trim() : undefined;
     const inviteToken =
@@ -85,8 +87,21 @@ export function mountPhoneSigninRoutes(
     const nonce = typeof parsed.nonce === "string" ? parsed.nonce : undefined;
     const code = typeof parsed.code === "string" ? parsed.code : undefined;
     if (!nonce || !code) return refusal(c, "invalid_input", 400);
+    const link = parsed.link === true;
+    // A signed-out caller is refused before the code is even looked at.
+    let linkUserId: string | undefined;
+    if (link) {
+      linkUserId = await sessionUserId(deps, c);
+      if (!linkUserId) return refusal(c, "unauthorized", 401);
+    }
     try {
       const verified = await verify(deps.prisma, config, { nonce, code });
+      if (link) {
+        // A signed-in person attaches the verified phone to their own account
+        // instead of creating one; the door's invite hash plays no part here.
+        await linkVerifiedPhone(deps.prisma, verified.phoneHash, linkUserId!, verified.redeem);
+        return c.json({ ok: true, linked: true });
+      }
       const person = await signInVerifiedPhone(
         deps.prisma,
         deps.auth,
@@ -105,6 +120,15 @@ export function mountPhoneSigninRoutes(
       return refused(c, error);
     }
   });
+}
+
+/** The signed-in person of the request, or null; only the link flow needs one. */
+async function sessionUserId(
+  deps: { auth: Auth },
+  c: Context,
+): Promise<string | undefined> {
+  const session = await deps.auth.api.getSession({ headers: c.req.raw.headers });
+  return session?.user.id;
 }
 
 async function parseBody(c: Context): Promise<Record<string, unknown> | null> {

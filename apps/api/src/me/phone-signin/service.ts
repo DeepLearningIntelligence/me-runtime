@@ -128,7 +128,7 @@ export type VerifiedPhone = {
 const PROVIDER = "whatsapp";
 
 /** The one canonical phone check, over the digits `normaliseIdentifier` leaves. */
-function requirePhoneValue(phone: string): string {
+export function requirePhoneValue(phone: string): string {
   const normalised = normaliseIdentifier("phone", phone);
   if (!/^[1-9]\d{6,14}$/.test(normalised)) throw new PhoneSigninError("invalid_phone");
   return normalised;
