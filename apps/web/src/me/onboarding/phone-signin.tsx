@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { authClient } from "../../lib/auth";
 import type { StartedDoor } from "./door";
-import { doorFailureText, startPhoneDoor, verifyPhoneDoor } from "./door";
+import { doorRefusal, startPhoneDoor, verifyPhoneDoor } from "./door";
+import type { DoorRefusal } from "./door";
 
 const CODE_LENGTH = 6;
 const codeFieldClass = "size-12 text-heading3 first:rounded-l-xl last:rounded-r-xl";
@@ -15,7 +16,9 @@ const primaryClass = "mt-3 h-12 w-full rounded-xl text-body-lg";
  * sends `ME-<nonce>` from their own WhatsApp, and types the code the business
  * line replies with. The number is learned from that message, so it is never
  * asked for. The invite token the welcome page carried rides with the start
- * call, because account creation is invite-only.
+ * call, because account creation is invite-only. An invite refusal stays on
+ * screen until a new door opens: a later failure must not push the real
+ * reason, and its next step, off the screen.
  */
 export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
   const { t } = useLingui();
@@ -24,7 +27,7 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
   const [door, setDoor] = useState<StartedDoor | null>(null);
   const [code, setCode] = useState("");
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<DoorRefusal | null>(null);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -37,7 +40,7 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
   async function openDoor() {
     if (pending) return;
     setPending(true);
-    setError(null);
+    setRefusal(null);
     try {
       const started = await startPhoneDoor({ inviteToken: inviteToken || undefined });
       if (mounted.current) {
@@ -45,7 +48,7 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
         setCode("");
       }
     } catch (caught) {
-      if (mounted.current) setError(doorFailureText(caught));
+      if (mounted.current) setRefusal((current) => doorRefusal(current, caught));
     } finally {
       if (mounted.current) setPending(false);
     }
@@ -54,7 +57,6 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
   async function verifyCode(value: string) {
     if (!door || pending || value.length < CODE_LENGTH) return;
     setPending(true);
-    setError(null);
     try {
       await verifyPhoneDoor({ nonce: door.nonce, code: value });
       // The session cookie is set; the store refetches, and the routes move
@@ -63,7 +65,7 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
       onSignedIn();
     } catch (caught) {
       if (mounted.current) {
-        setError(doorFailureText(caught));
+        setRefusal((current) => doorRefusal(current, caught));
         setCode("");
       }
     } finally {
@@ -74,7 +76,7 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
   function restart() {
     setDoor(null);
     setCode("");
-    setError(null);
+    setRefusal(null);
   }
 
   const minutes = door ? Math.max(1, Math.round(door.ttlMs / 60_000)) : 0;
@@ -153,9 +155,9 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
           </Button>
         </>
       )}
-      {error ? (
+      {refusal ? (
         <p role="alert" className="mt-3 w-full text-center text-body text-destructive">
-          {error}
+          {refusal.text}
         </p>
       ) : null}
     </div>

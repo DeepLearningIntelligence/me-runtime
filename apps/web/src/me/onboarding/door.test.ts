@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { DoorError, doorFailureText, startPhoneDoor, verifyPhoneDoor } from "./door";
+import { DoorError, doorFailureText, doorRefusal, startPhoneDoor, verifyPhoneDoor } from "./door";
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -67,4 +67,19 @@ it("refuses by the server's named reason", async () => {
 it("names an unreachable server instead of guessing", async () => {
   fetchMock.mockReturnValue(Promise.reject(new Error("offline")));
   await expect(startPhoneDoor()).rejects.toThrow(DoorError);
+});
+
+it("keeps an invite refusal on screen over a later code refusal", () => {
+  const invited = doorRefusal(null, new DoorError("invite_required"));
+  expect(invited.stays).toBe(true);
+  expect(invited.text).toContain("invite-only");
+
+  // A later code_invalid from the same door changes nothing on screen.
+  expect(doorRefusal(invited, new DoorError("code_invalid"))).toBe(invited);
+
+  // A non-invite refusal is replaced freely.
+  const coded = doorRefusal(null, new DoorError("code_invalid"));
+  expect(coded.stays).toBe(false);
+  expect(coded.text).toContain("not right");
+  expect(doorRefusal(coded, new DoorError("code_expired")).text).toContain("expired");
 });

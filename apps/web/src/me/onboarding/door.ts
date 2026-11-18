@@ -78,6 +78,22 @@ export function verifyPhoneDoor(input: { nonce: string; code: string }): Promise
   return call<{ ok: true }>("/api/auth/phone/verify", input).then(() => undefined);
 }
 
+/** The refusal a door shows, and whether it must stay on screen. */
+export type DoorRefusal = { text: string; stays: boolean };
+
+/**
+ * The words a refused door shows, folded over the refusal already there. An
+ * invite refusal stays: the code is not the problem (F1 keeps it usable), so a
+ * later `code_invalid` from the same door must not push the real reason, and
+ * its next step, off the screen. Anything else replaces freely.
+ */
+export function doorRefusal(previous: DoorRefusal | null, error: unknown): DoorRefusal {
+  if (previous?.stays) return previous;
+  const reason = error instanceof DoorError ? error.reason : "unreachable";
+  const stays = reason === "invite_required" || reason === "invite_invalid";
+  return { text: doorFailureText(error), stays };
+}
+
 /** The words a refused door shows; every refusal names what to do next. */
 export function doorFailureText(error: unknown): string {
   const reason = error instanceof DoorError ? error.reason : "unreachable";
