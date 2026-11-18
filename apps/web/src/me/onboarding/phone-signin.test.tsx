@@ -144,6 +144,11 @@ it("shows the code to send by hand, with a labelled copy button, and the busines
   await render();
   await click("Continue");
   expect(host.textContent).toContain(DOOR.nonce);
+  // The number cannot break mid-number at a narrow width (jsdom lays out
+  // nothing; the markup contract is the nowrap span, the screenshot proves it).
+  const numberSpan = host.querySelector("span.whitespace-nowrap")!;
+  expect(numberSpan).not.toBeNull();
+  expect(numberSpan.textContent).toBe(DOOR.businessNumber);
   expect(host.textContent).toContain("Or send this code on WhatsApp to +1 555 000 1111");
 
   const copy = host.querySelector<HTMLButtonElement>('button[aria-label="Copy sign-in code"]')!;

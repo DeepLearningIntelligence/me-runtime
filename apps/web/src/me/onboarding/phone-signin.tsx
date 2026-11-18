@@ -176,7 +176,10 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
             {copied ? <Trans>Copied</Trans> : <Trans>Copy</Trans>}
           </Button>
           <p className="mt-2 w-full text-center text-body text-muted-foreground">
-            <Trans>Or send this code on WhatsApp to {door.businessNumber}</Trans>
+            <Trans>
+              Or send this code on WhatsApp to{" "}
+              <span className="whitespace-nowrap">{door.businessNumber}</span>
+            </Trans>
           </p>
           <div className="mt-6 flex w-full justify-center">
             <InputOTP
