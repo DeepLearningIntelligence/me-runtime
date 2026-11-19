@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DoorError, type StartedDoor } from "./door";
+import { encodeDoorRecord } from "./phone-door-storage";
 import { PhoneDoorPanel } from "./phone-signin";
 
 const { startPhoneDoor, verifyPhoneDoor, notify } = vi.hoisted(() => ({
@@ -224,4 +225,43 @@ it("opens no restored door whose code has expired", async () => {
   expect(host.textContent).toContain("We send a sign-in code");
   await click("Continue");
   expect(startPhoneDoor).toHaveBeenCalledTimes(2);
+});
+
+it("discards an uninvited saved attempt when an invitation opens", async () => {
+  window.sessionStorage.setItem("me.phone-door", encodeDoorRecord(DOOR, undefined));
+
+  await render("/sign-in?invite=invite-a");
+
+  expect(host.textContent).not.toContain(DOOR.nonce);
+  expect(host.textContent).toContain("We send a sign-in code");
+  expect(window.sessionStorage.getItem("me.phone-door")).toBeNull();
+});
+
+it("discards an attempt saved for another invitation", async () => {
+  window.sessionStorage.setItem("me.phone-door", encodeDoorRecord(DOOR, "invite-a"));
+
+  await render("/sign-in?invite=invite-b");
+
+  expect(host.textContent).not.toContain(DOOR.nonce);
+  expect(host.textContent).toContain("We send a sign-in code");
+  expect(window.sessionStorage.getItem("me.phone-door")).toBeNull();
+});
+
+it("restores the attempt for the same invitation after the WhatsApp round trip", async () => {
+  window.sessionStorage.setItem("me.phone-door", encodeDoorRecord(DOOR, "invite-a"));
+
+  await render("/sign-in?invite=invite-a");
+
+  expect(host.textContent).toContain(DOOR.nonce);
+  expect(host.querySelector(`a[href="${DOOR.waLink}"]`)).not.toBeNull();
+  expect(window.sessionStorage.getItem("me.phone-door")).not.toBeNull();
+});
+
+it("discards a record saved before the invitation was part of the shape", async () => {
+  window.sessionStorage.setItem("me.phone-door", JSON.stringify({ door: DOOR }));
+
+  await render("/sign-in?invite=invite-a");
+
+  expect(host.textContent).not.toContain(DOOR.nonce);
+  expect(window.sessionStorage.getItem("me.phone-door")).toBeNull();
 });

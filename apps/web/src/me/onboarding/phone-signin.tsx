@@ -6,6 +6,12 @@ import { authClient } from "../../lib/auth";
 import type { DoorRefusal, StartedDoor } from "./door";
 import { doorRefusal, startPhoneDoor, verifyPhoneDoor } from "./door";
 import { rememberWhatsappLink } from "./entry";
+import {
+  decodeDoorRecord,
+  DOOR_STORAGE_KEY,
+  encodeDoorRecord,
+  inviteFingerprint,
+} from "./phone-door-storage";
 
 const CODE_LENGTH = 6;
 const codeFieldClass = "size-12 text-heading3 first:rounded-l-xl last:rounded-r-xl";
@@ -18,25 +24,14 @@ const primaryClass = "mt-3 h-12 w-full rounded-xl text-body-lg";
  * the nonce the server still knows. An expired door loads as no door at all.
  */
 
-const DOOR_KEY = "me.phone-door";
-
 function loadDoor(inviteToken: string | undefined): StartedDoor | null {
   try {
-    const raw = window.sessionStorage.getItem(DOOR_KEY);
+    const raw = window.sessionStorage.getItem(DOOR_STORAGE_KEY);
     if (!raw) return null;
-    const saved = JSON.parse(raw) as { door?: StartedDoor; inviteToken?: string | null };
-    if (saved.inviteToken !== (inviteToken ?? null) || !saved.door) return null;
-    const door = saved.door;
-    if (
-      typeof door.nonce !== "string" ||
-      typeof door.waLink !== "string" ||
-      typeof door.businessNumber !== "string" ||
-      typeof door.expiresAt !== "string" ||
-      typeof door.ttlMs !== "number"
-    ) {
-      return null;
-    }
-    if (Date.parse(door.expiresAt) <= Date.now()) return null;
+    const door = decodeDoorRecord(raw, inviteToken);
+    // A record for another invitation, or one saved before the invitation was
+    // part of the shape, is discarded instead of restored into this journey.
+    if (!door) window.sessionStorage.removeItem(DOOR_STORAGE_KEY);
     return door;
   } catch {
     // Unreadable storage opens as no door; the person starts over.
@@ -47,11 +42,8 @@ function loadDoor(inviteToken: string | undefined): StartedDoor | null {
 function saveDoor(door: StartedDoor | null, inviteToken?: string): void {
   try {
     if (door) {
-      window.sessionStorage.setItem(
-        DOOR_KEY,
-        JSON.stringify({ door, inviteToken: inviteToken ?? null }),
-      );
-    } else window.sessionStorage.removeItem(DOOR_KEY);
+      window.sessionStorage.setItem(DOOR_STORAGE_KEY, encodeDoorRecord(door, inviteToken));
+    } else window.sessionStorage.removeItem(DOOR_STORAGE_KEY);
   } catch {
     // Blocked storage only loses the round trip; the door still works in one stretch.
   }
@@ -70,11 +62,12 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
   const { t } = useLingui();
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get("invite") ?? undefined;
+  const fingerprint = inviteFingerprint(inviteToken);
   const [attempt, setDoor] = useState(() => ({
     door: loadDoor(inviteToken),
-    inviteToken,
+    fingerprint,
   }));
-  const door = attempt.inviteToken === inviteToken ? attempt.door : null;
+  const door = attempt.fingerprint === fingerprint ? attempt.door : null;
   const [code, setCode] = useState("");
   const [pending, setPending] = useState(false);
   const [refusal, setRefusal] = useState<DoorRefusal | null>(null);
@@ -113,7 +106,7 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
     try {
       const started = await startPhoneDoor({ inviteToken: inviteToken || undefined });
       if (mounted.current) {
-        setDoor({ door: started, inviteToken });
+        setDoor({ door: started, fingerprint });
         saveDoor(started, inviteToken);
         setCode("");
       }
@@ -147,7 +140,7 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
   }
 
   function restart() {
-    setDoor({ door: null, inviteToken });
+    setDoor({ door: null, fingerprint });
     saveDoor(null);
     setCode("");
     setRefusal(null);
