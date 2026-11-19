@@ -6,6 +6,7 @@ import type {
   ConnectorTool,
 } from "@rakazo/adapter-kit";
 import { getLogger } from "@rakazo/logging";
+import { GFIN_MCP_URL } from "./gfin-endpoint.js";
 
 /**
  * The deployment-managed Go Fund It Now connection (D-RUN-9 of the me-runtime brief).
@@ -21,7 +22,7 @@ import { getLogger } from "@rakazo/logging";
 export const GFIN_CONNECTION_SLUG = "gfin";
 
 /** The MCP endpoint the connection points at until per-person provisioning (GFIN G3). */
-export const GFIN_MCP_URL = "https://app.gofunditnow.com/api/mcp";
+export { GFIN_MCP_URL };
 
 /** The only tools the house key may reach: GFIN's public read-only search. */
 export const GFIN_PUBLIC_TOOLS = ["search_opportunities", "get_opportunity"] as const;

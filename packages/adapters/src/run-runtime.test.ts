@@ -1,6 +1,7 @@
 import { phoneCallSettings, resolveEncryptionKey, uploadSizeFromEnv } from "@rakazo/core";
 import { describe, expect, it } from "vitest";
 import { resolveDeploymentModel } from "./deployment-model.js";
+import { parseConnectorAllowlist } from "./connector-allowlist.js";
 import { mcpStdioOptionsFromEnv } from "./mcp-connector.js";
 import { runRuntimeEnvFromProcess } from "./run-runtime.js";
 
@@ -11,6 +12,7 @@ function previousWorkerValues(source: NodeJS.ProcessEnv) {
     dataDir: source.DATA_DIR ?? "./data",
     encryptionKey: resolveEncryptionKey(source),
     composioApiKey: source.COMPOSIO_API_KEY,
+    connectorAllowlist: parseConnectorAllowlist(source.ME_CONNECTOR_ALLOWLIST),
     cursorApiKey: source.CURSOR_API_KEY,
     deploymentModelKey: key,
     deploymentModelConfigured: configured,

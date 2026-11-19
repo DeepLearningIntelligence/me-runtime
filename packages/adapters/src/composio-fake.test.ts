@@ -62,7 +62,9 @@ async function connect(connector: ComposioConnector, provider: string, userId = 
 describe("ComposioConnector over the fake Composio client", () => {
   it("stays registered when supplied without a live Composio key", () => {
     const { connector } = setup();
-    expect(createConnectorStack(connector).connector.managed("composio")).toBe(connector);
+    expect(createConnectorStack(connector).connector.managed("composio")?.describe().id).toBe(
+      "composio",
+    );
   });
 
   it("serves and searches the toolkit catalog", async () => {
@@ -72,6 +74,20 @@ describe("ComposioConnector over the fake Composio client", () => {
     await expect(connector.catalog(context(), "git")).resolves.toEqual([
       expect.objectContaining({ slug: "GITHUB", name: "GitHub", connected: false }),
     ]);
+  });
+
+  it("filters the catalog and refuses begin for an app the allowlist denies", async () => {
+    const { connector } = setup();
+    const offered = createConnectorStack(connector, [], ["slack"])
+      .connector.managedProviders()
+      .find((provider) => provider.describe().id === "composio")!;
+
+    const catalog = await offered.catalog(context());
+    expect(catalog.map((entry) => entry.slug)).toEqual(["SLACK"]);
+
+    await expect(
+      offered.begin({ provider: "GMAIL", redirectUrl: "http://example.test/callback" }, context()),
+    ).rejects.toMatchObject({ code: "connector_not_allowed" });
   });
 
   it("hides apps nobody can sign in to until the project sets up their auth", async () => {

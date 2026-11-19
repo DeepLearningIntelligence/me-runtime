@@ -8,6 +8,7 @@ import type { IntegrationProviderConfig, IntegrationProviderId } from "@rakazo/c
 import { IntegrationProviderConfigSchema, IntegrationProviderIdSchema } from "@rakazo/contracts";
 import type { PrismaClient } from "@rakazo/db";
 import { ComposioConnector } from "./composio-connector.js";
+import { COMPOSIO_CONNECTOR_ID, connectorAllowlistAllows } from "./connector-allowlist.js";
 import { credentialDigest } from "./credential-digest.js";
 import { PipedreamConnector } from "./pipedream-connector.js";
 
@@ -29,6 +30,7 @@ export class IntegrationProviderSettings {
       Record<IntegrationProviderId, ManagedConnectorProvider>
     > = {},
     private readonly factory?: (config: IntegrationProviderConfig) => ManagedConnectorProvider,
+    private readonly connectorAllowlist: readonly string[] = [],
   ) {
     this.secrets.onChange?.((ref) => {
       for (const [id, entry] of this.cache) if (entry.ciphertext === ref) this.cache.delete(id);
@@ -114,13 +116,16 @@ export class IntegrationProviderSettings {
   async listConnectedPluginSlugs(userId: string): Promise<string[]> {
     const provider = await this.resolve(PLUGIN_SLUG_PROVIDER);
     if (!provider) return [];
-    return provider.listConnectedExternalIds({
+    const slugs = await provider.listConnectedExternalIds({
       userId,
       spaceId: "",
       operationId: "connections.sync",
       traceId: "connections.sync",
       signal: AbortSignal.timeout(15_000),
     });
+    return slugs.filter((slug) =>
+      connectorAllowlistAllows(this.connectorAllowlist, COMPOSIO_CONNECTOR_ID, slug),
+    );
   }
 
   providers(): ManagedConnectorProvider[] {

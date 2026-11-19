@@ -133,7 +133,96 @@ describe("ConnectorRegistry", () => {
     )) {
       events.push(event);
     }
-    expect(events).toEqual([{ type: "error", message: "unknown connector composio" }]);
+    expect(events).toEqual([
+      {
+        type: "error",
+        message: "connector_not_allowed: destinationwrite is not offered on this deployment.",
+      },
+    ]);
+  });
+
+  it("offers no Composio app when the allowlist is empty", async () => {
+    const composio = new StubConnector("composio", [
+      tool("GMAIL_SEND_EMAIL"),
+      tool("SLACK_POST_MESSAGE"),
+    ]);
+    const other = new StubConnector("installed", [tool("read")]);
+    const registry = new ConnectorRegistry([composio, other], []);
+
+    const discovered = await registry.discoverTools(context);
+    expect(discovered.map((entry) => entry.name)).toEqual(["read"]);
+  });
+
+  it("offers only allowlisted Composio apps and still runs an allowed one", async () => {
+    const composio = new StubConnector("composio", [
+      tool("GMAIL_SEND_EMAIL"),
+      tool("SLACK_POST_MESSAGE"),
+    ]);
+    const registry = new ConnectorRegistry([composio], ["slack"]);
+
+    const discovered = await registry.discoverTools(context);
+    expect(discovered.map((entry) => entry.name)).toEqual(["SLACK_POST_MESSAGE"]);
+
+    const events: ConnectorEvent[] = [];
+    for await (const event of registry.execute(
+      {
+        tool: "SLACK_POST_MESSAGE",
+        args: {},
+        executionId: "execution",
+        route: { connectorId: "composio", toolName: "SLACK_POST_MESSAGE" },
+      },
+      context,
+    )) {
+      events.push(event);
+    }
+    expect(events).toEqual([
+      { type: "result", data: { connector: "composio", tool: "SLACK_POST_MESSAGE" } },
+    ]);
+    expect(composio.calls).toHaveLength(1);
+  });
+
+  it("refuses a denied Composio connector before it is executed", async () => {
+    const composio = new StubConnector("composio", [tool("GMAIL_SEND_EMAIL")]);
+    const registry = new ConnectorRegistry([composio], ["slack"]);
+
+    const events: ConnectorEvent[] = [];
+    for await (const event of registry.execute(
+      {
+        tool: "GMAIL_SEND_EMAIL",
+        args: {},
+        executionId: "execution",
+        route: { connectorId: "composio", toolName: "GMAIL_SEND_EMAIL" },
+      },
+      context,
+    )) {
+      events.push(event);
+    }
+    expect(events).toEqual([
+      { type: "error", message: "connector_not_allowed: gmail is not offered on this deployment." },
+    ]);
+    expect(composio.calls).toEqual([]);
+  });
+
+  it("refuses a nested multi-execute action on a denied app", async () => {
+    const composio = new StubConnector("composio", [tool("COMPOSIO_MULTI_EXECUTE_TOOL")]);
+    const registry = new ConnectorRegistry([composio], ["slack"]);
+
+    const events: ConnectorEvent[] = [];
+    for await (const event of registry.execute(
+      {
+        tool: "COMPOSIO_MULTI_EXECUTE_TOOL",
+        args: { tools: [{ tool_slug: "GMAIL_SEND_EMAIL", arguments: {} }] },
+        executionId: "execution",
+        route: { connectorId: "composio", toolName: "COMPOSIO_MULTI_EXECUTE_TOOL" },
+      },
+      context,
+    )) {
+      events.push(event);
+    }
+    expect(events).toEqual([
+      { type: "error", message: "connector_not_allowed: gmail is not offered on this deployment." },
+    ]);
+    expect(composio.calls).toEqual([]);
   });
 });
 
