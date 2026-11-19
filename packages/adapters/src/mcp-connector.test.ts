@@ -148,6 +148,83 @@ function mcpFetch(
   });
 }
 
+describe("MCP connector tool-call metering", () => {
+  const METERING_CONTEXT = {
+    operationId: "test",
+    traceId: "test",
+    spaceId: "w1",
+    userId: "u1",
+    botId: "bot-1",
+    signal: new AbortController().signal,
+  };
+
+  const gfinCall = {
+    tool: "mcp__gfin__search_opportunities",
+    args: {},
+    route: { connectorId: "mcp", resourceId: SERVER.id, toolName: "search_opportunities" },
+  };
+
+  function meteredPrisma(slug: string) {
+    const createMany = vi.fn(async (_input: { data: Array<Record<string, unknown>> }) => ({
+      count: 1,
+    }));
+    const assignment = { ...ASSIGNMENT, server: { ...SERVER, slug } };
+    const prisma = {
+      mcpServer: NO_SHARED_SERVERS,
+      botMcpServer: {
+        findMany: vi.fn(async () => [assignment]),
+        findFirst: vi.fn(async () => assignment),
+      },
+      // recordUsage writes through one transaction. A call with no credit
+      // reservation exposes only the insert it runs.
+      $transaction: vi.fn(async (body: (tx: unknown) => Promise<void>) =>
+        body({
+          usageRecord: { createMany },
+          modelCreditEntry: { findUnique: async () => null },
+        }),
+      ),
+    };
+    return { prisma, createMany };
+  }
+
+  async function run(prisma: unknown): Promise<unknown[]> {
+    const connector = new McpConnector(prisma as never, {} as never, { network: TEST_NETWORK });
+    const events: unknown[] = [];
+    try {
+      for await (const event of connector.execute(gfinCall as never, METERING_CONTEXT as never))
+        events.push(event);
+    } finally {
+      await connector.close();
+    }
+    return events;
+  }
+
+  it("writes one usage row attributed to the server and the tool", async () => {
+    const { prisma, createMany } = meteredPrisma("gfin");
+    vi.stubGlobal("fetch", mcpFetch({ failNext: false, initializations: 0 }));
+    expect(await run(prisma)).toContainEqual(expect.objectContaining({ type: "result" }));
+    expect(createMany).toHaveBeenCalledTimes(1);
+    expect(createMany.mock.calls[0]?.[0]).toMatchObject({
+      data: [
+        expect.objectContaining({
+          provider: "gfin",
+          model: "search_opportunities",
+          spaceId: "w1",
+          userId: "u1",
+          botId: "bot-1",
+        }),
+      ],
+    });
+  });
+
+  it("writes no usage row when the call itself fails", async () => {
+    const { prisma, createMany } = meteredPrisma("gfin");
+    vi.stubGlobal("fetch", mcpFetch({ failNext: true, initializations: 0 }));
+    expect(await run(prisma)).toContainEqual(expect.objectContaining({ type: "error" }));
+    expect(createMany).not.toHaveBeenCalled();
+  });
+});
+
 describe("MCP connector session cache", () => {
   it.each([
     "revision",
@@ -412,6 +489,11 @@ describe("MCP connector session cache", () => {
         findFirst: vi.fn(async () => assignment),
       },
       secret: { findFirst: vi.fn(async () => ({ id: record.id, ciphertext: record.ref })) },
+      // The execute path meters a successful call; a fake transaction lets that
+      // write succeed, so the only log lines are the ones this test is about.
+      $transaction: vi.fn(async (body: (tx: unknown) => Promise<void>) =>
+        body({ usageRecord: { createMany: vi.fn(async () => ({ count: 1 })) } }),
+      ),
     };
     // Health writes succeed, so the only log lines are the ones this test is about.
     Object.assign(prisma, {

@@ -27,7 +27,7 @@ import {
   resolveMcpOAuthFileTemplate,
 } from "@rakazo/contracts";
 import type { McpServer, PrismaClient, ThreadEvents } from "@rakazo/db";
-import { availableInSpace, itemSecretIn } from "@rakazo/db";
+import { availableInSpace, itemSecretIn, recordUsage } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 import { sanitizedError } from "@rakazo/logging/monitoring";
 import { catalogToolPrefix } from "./approval-effect.js";
@@ -702,6 +702,11 @@ export class McpConnector implements ConnectorProvider {
         launchSecrets = this.sessions.get(sessionKey)?.launchSecrets ?? [];
         return session.callTool(toolName, call.args, { signal: context.signal });
       });
+      // One usage row for the call that just returned: this path has no other
+      // telemetry, and the staged GFIN bill is read from these rows. Best effort,
+      // so a meter write that fails never turns a paid answer into a retry that
+      // pays again; the insert itself is atomic.
+      await this.recordToolCallUsage(assignment.server, context, toolName);
       const secrets = [...(material ? oauthMaterialSecrets(material) : []), ...launchSecrets];
       yield { type: "result", data: redactConnectorPayload(result, secrets) };
       const app = await readMcpApp(
@@ -720,6 +725,46 @@ export class McpConnector implements ConnectorProvider {
       const secrets = [...(material ? oauthMaterialSecrets(material) : []), ...launchSecrets];
       await this.evict(sessionKey);
       yield { type: "error", message: sanitizeConnectorError(error, secrets) };
+    }
+  }
+
+  /**
+   * One usage row per MCP tool call that returned. `recordUsage` is the single
+   * usage authority (packages/db/src/usage.ts), so this path writes through it
+   * rather than inserting itself; the row is what the staged GFIN bill is read
+   * from. Best effort, like the paid-service path: a failed write is logged and
+   * never thrown into the call's flow. `recordUsage` inserts one atomic
+   * statement, so a restart cannot leave a half-written event.
+   */
+  private async recordToolCallUsage(
+    server: McpServer,
+    context: AdapterContext,
+    toolName: string,
+  ): Promise<void> {
+    try {
+      await recordUsage(
+        this.prisma,
+        {
+          type: "usage",
+          provider: server.slug,
+          model: toolName,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+        },
+        {
+          spaceId: context.spaceId,
+          userId: context.userId,
+          botId: context.botId,
+          runId: context.runId,
+        },
+      );
+    } catch (error) {
+      getLogger().error("mcp.tool_call_usage_unrecorded", {
+        server: server.slug,
+        tool: toolName,
+        error,
+      });
     }
   }
 
