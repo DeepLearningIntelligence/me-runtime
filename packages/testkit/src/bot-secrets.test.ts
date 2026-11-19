@@ -31,6 +31,13 @@ describeIntegration("reusable credential lifecycle", () => {
       echo: auth,
     });
   });
+  // The provisioned GFIN server uses the same injected fetch. Reflexive calls to the
+  // fixture destination are the only ones that are credential use under test.
+  const destinationFetches = () =>
+    fetch.mock.calls.filter(([input]) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      return url.origin === destination.origin;
+    });
 
   beforeAll(async () => {
     const { createApp } = await import("@rakazo/api/app");
@@ -291,7 +298,7 @@ describeIntegration("reusable credential lifecycle", () => {
           },
           { timeout: 15_000 },
         );
-        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(destinationFetches()).toHaveLength(1);
         expect(
           await db.externalEffect.findFirstOrThrow({
             where: { runId: useRun, kind: "secret_request" },
@@ -341,10 +348,10 @@ describeIntegration("reusable credential lifecycle", () => {
           },
           { timeout: 15_000 },
         );
-        expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get("Authorization")).toBe(
+        expect(new Headers(destinationFetches().at(-1)?.[1]?.headers).get("Authorization")).toBe(
           `Bearer ${key}-rotated`,
         );
-        const count = fetch.mock.calls.length;
+        const count = destinationFetches().length;
         const forgotten = await nextRun([
           { name: "forget_secret", args: { name: destination.name } },
           request,
@@ -361,7 +368,7 @@ describeIntegration("reusable credential lifecycle", () => {
           { timeout: 15_000 },
         );
         expect(await db.vaultCredential.count({ where: { userId: seeded.me.userId } })).toBe(0);
-        expect(fetch).toHaveBeenCalledTimes(count);
+        expect(destinationFetches()).toHaveLength(count);
         const [messages, events, effects, tasks] = await Promise.all([
           db.message.findMany({ where: { threadId: seeded.thread.id } }),
           db.event.findMany({ where: { threadId: seeded.thread.id } }),
