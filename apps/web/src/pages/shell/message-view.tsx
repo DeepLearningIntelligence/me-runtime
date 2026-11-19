@@ -57,6 +57,7 @@ import {
   ChartBlockView,
   ChoiceCard,
   McpApprovalCard,
+  ProductCard,
 } from "./message-cards";
 import { MessageHoverActions } from "./message-hover-actions";
 
@@ -500,6 +501,13 @@ export const MessageView = memo(function MessageView({
                   messageId={message.id}
                   block={block}
                 />
+              </div>
+            );
+          }
+          if (block.kind === "product_card") {
+            return (
+              <div key={i} className="flex justify-start">
+                <ProductCard block={block} />
               </div>
             );
           }

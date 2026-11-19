@@ -74,6 +74,22 @@ describe("contracts", () => {
     );
   });
 
+  it("accepts a product card whose facts came from the page", () => {
+    const card = {
+      kind: "product_card",
+      url: "https://shopstar.example/products/mini-backpack",
+      title: "Mini Backpack",
+      subtitle: "Shopstar",
+      price: "$49.99",
+      attributes: [{ k: "Color", v: "Cream" }],
+      imageUrl: "https://shopstar.example/images/mini-backpack.jpg",
+      source: "https://shopstar.example/products/mini-backpack",
+      verifiedAt: "2026-11-19T09:00:00.000Z",
+    } as const;
+    expect(MessageBlock.parse(card)).toEqual(card);
+    expect(MessageBlock.safeParse({ ...card, price: undefined }).success).toBe(false);
+  });
+
   it("parses bounded model image limits", () => {
     expect(parseModelMaxImagesPerPrompt("1")).toBe(1);
     expect(parseModelMaxImagesPerPrompt("1000")).toBe(1000);

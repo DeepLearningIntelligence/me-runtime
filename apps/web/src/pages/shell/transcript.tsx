@@ -614,6 +614,7 @@ export const Transcript = memo(function Transcript({
                               message.blocks.some(
                                 (block) =>
                                   block.kind === "app_connect" ||
+                                  block.kind === "product_card" ||
                                   block.kind === "page" ||
                                   block.kind === "computer",
                               ) || pageView.pages.has(message.id)

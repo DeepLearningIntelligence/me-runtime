@@ -233,6 +233,45 @@ export function AppConnectCard({
   );
 }
 
+export function ProductCard({ block }: { block: Extract<MessageBlock, { kind: "product_card" }> }) {
+  const { t } = useLingui();
+  return (
+    <a
+      href={block.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-testid="product-card"
+      aria-label={t`${block.title}, ${block.price}`}
+      className="block w-full max-w-[440px] overflow-hidden rounded-2xl bg-card no-underline"
+    >
+      {block.imageUrl ? (
+        <img src={block.imageUrl} alt="" className="max-h-60 w-full bg-muted object-cover" />
+      ) : null}
+      <div className="px-4 py-3.5">
+        <div className="text-body-lg font-medium text-foreground">{block.title}</div>
+        {block.subtitle ? (
+          <div className="mt-0.5 text-body-sm text-muted-foreground">{block.subtitle}</div>
+        ) : null}
+        {block.attributes.length > 0 ? (
+          <div className="mt-1 text-body-sm text-muted-foreground">
+            {block.attributes.map((attribute) => (
+              <span key={`${attribute.k}:${attribute.v}`} className="me-3 inline-block">
+                {attribute.k}: {attribute.v}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <div className="mt-2.5 flex items-center justify-between gap-3">
+          <span className="text-body-lg font-medium text-foreground">{block.price}</span>
+          <span className="rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground">
+            <Trans>Add to Cart</Trans>
+          </span>
+        </div>
+      </div>
+    </a>
+  );
+}
+
 function ChartCanvas({
   spec,
   data,

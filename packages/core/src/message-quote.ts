@@ -161,6 +161,14 @@ function replyBlockText(block: MessageBlock): string {
       return block.question;
     case "card":
       return block.lines.map((line) => `${line.k}: ${line.v}`).join(", ");
+    case "product_card":
+      return [
+        block.title,
+        ...block.attributes.map((attribute) => `${attribute.k}: ${attribute.v}`),
+        block.price,
+      ]
+        .filter(Boolean)
+        .join(" - ");
     case "steps":
       return block.steps.map((step) => step.label).join(", ");
     case "voice_call":

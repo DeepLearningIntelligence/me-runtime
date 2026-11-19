@@ -828,6 +828,26 @@ export const builtinAgentTools: ConnectorTool[] = [
     readOnly: true,
   },
   {
+    name: "product_card",
+    description:
+      "Show a product card for something the user wants to see or buy, such as 'mini backpack from shopstar'. Reads the product page and returns its title, price and attributes as a card; tapping the card opens the product page. Pass the product page url when the user's message or a search gave one.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        product: {
+          type: "string",
+          description: "The product to find, as the user asked for it.",
+        },
+        url: {
+          type: "string",
+          description: "The product page URL, when the user's message or a search gave one.",
+        },
+      },
+      required: ["product"],
+    },
+    readOnly: true,
+  },
+  {
     name: "service_search",
     description:
       "Find a paid data service by the job it does: map places, search results, work emails, people and company profiles, social posts, SEO and backlink data. Returns service ids, prices in USD per call, and params. Then call one with service_call.",

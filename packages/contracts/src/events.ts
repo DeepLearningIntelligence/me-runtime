@@ -128,6 +128,26 @@ export const MessageBlock = z.discriminatedUnion("kind", [
     lines: z.array(z.object({ k: z.string(), v: z.string() })),
   }),
   z.object({
+    /** A product the bot found: facts read from its page, never invented. */
+    kind: z.literal("product_card"),
+    /** The product page; tapping the card opens it. */
+    url: z.string().max(2048),
+    /** The product's name as its page states it. */
+    title: z.string().max(200),
+    /** A short caption under the title, when the page gives one. */
+    subtitle: z.string().max(200).optional(),
+    /** The price as the page states it, for example "$49.99". */
+    price: z.string().max(200),
+    /** Attribute pairs the page lists, such as { k: "Color", v: "Cream" }. */
+    attributes: z.array(z.object({ k: z.string().max(80), v: z.string().max(160) })).max(12),
+    /** The main image URL, when the page names one in its readable text. */
+    imageUrl: z.string().max(2048).optional(),
+    /** The page the facts were read from: the product page, or the search hit that led to it. */
+    source: z.string().max(2048),
+    /** When the facts were read. */
+    verifiedAt: z.string().max(40),
+  }),
+  z.object({
     kind: z.literal("ask"),
     text: z.string(),
     approvalEffectId: Id.optional(),
