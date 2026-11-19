@@ -6,6 +6,7 @@ import type {
   MessagingSurface,
   SecretStore,
 } from "@rakazo/adapter-kit";
+import type { ConnectorPolicy } from "@rakazo/contracts";
 import { phoneCallSettings, resolveEncryptionKey, uploadSizeFromEnv } from "@rakazo/core";
 import type { PrismaClient, ThreadEvents } from "@rakazo/db";
 import { createSecurityEventPruner, securityEventRetentionDays } from "@rakazo/db";
@@ -16,7 +17,7 @@ import type { ComposioProvider } from "./composio-connector.js";
 import { ComposioConnector, isComposioEnabled } from "./composio-connector.js";
 import { createIdleComputerSweeper } from "./computer-idle.js";
 import { reconcileComputerUpdates } from "./computer-update.js";
-import { parseConnectorAllowlist } from "./connector-allowlist.js";
+import { parseConnectorPolicy } from "./connector-allowlist.js";
 import { createConnectorStack } from "./connector-registry.js";
 import { deploymentModelUsageLookup, resolveDeploymentModel } from "./deployment-model.js";
 import { createRunExecutor } from "./executor.js";
@@ -50,8 +51,8 @@ import { createWebProvider } from "./web-provider-factory.js";
 export interface RunRuntimeEnv extends PipedreamEnvironmentValues {
   dataDir: string;
   composioApiKey: string | undefined;
-  /** ME_CONNECTOR_ALLOWLIST: Composio app slugs this deployment offers; empty offers none. */
-  connectorAllowlist: string[];
+  /** ME_CONNECTOR_ALLOWLIST and ME_CONNECTOR_DENYLIST, parsed once. */
+  connectorPolicy: ConnectorPolicy;
   cursorApiKey: string | undefined;
   deploymentModelKey: string | undefined;
   deploymentModelConfigured: boolean;
@@ -76,7 +77,10 @@ export function runRuntimeEnvFromProcess(source: NodeJS.ProcessEnv): RunRuntimeE
     dataDir: source.DATA_DIR ?? "./data",
     encryptionKey: resolveEncryptionKey(source),
     composioApiKey: source.COMPOSIO_API_KEY,
-    connectorAllowlist: parseConnectorAllowlist(source.ME_CONNECTOR_ALLOWLIST),
+    connectorPolicy: parseConnectorPolicy(
+      source.ME_CONNECTOR_DENYLIST,
+      source.ME_CONNECTOR_ALLOWLIST,
+    ),
     cursorApiKey: source.CURSOR_API_KEY,
     deploymentModelKey: deploymentModel.key,
     deploymentModelConfigured: deploymentModel.configured,
@@ -152,7 +156,7 @@ export function createConnectorRuntime(
       pipedream,
     },
     undefined,
-    env.connectorAllowlist,
+    env.connectorPolicy,
   );
   const stack = createConnectorStack(
     composio,
@@ -166,7 +170,7 @@ export function createConnectorRuntime(
       guardConnectorTools(mcp, GFIN_TOOL_GUARD),
       ...(overrides.connectors ?? []),
     ],
-    env.connectorAllowlist,
+    env.connectorPolicy,
   );
   integrationSettings.warmDirectories();
   return { mcpOAuth, mcp, pipedream, installed, integrationSettings, stack };

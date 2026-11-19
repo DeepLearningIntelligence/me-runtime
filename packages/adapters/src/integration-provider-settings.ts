@@ -4,11 +4,19 @@ import type {
   ManagedConnectorProvider,
   SecretStore,
 } from "@rakazo/adapter-kit";
-import type { IntegrationProviderConfig, IntegrationProviderId } from "@rakazo/contracts";
+import type {
+  ConnectorPolicy,
+  IntegrationProviderConfig,
+  IntegrationProviderId,
+} from "@rakazo/contracts";
 import { IntegrationProviderConfigSchema, IntegrationProviderIdSchema } from "@rakazo/contracts";
 import type { PrismaClient } from "@rakazo/db";
 import { ComposioConnector } from "./composio-connector.js";
-import { COMPOSIO_CONNECTOR_ID, connectorAllowlistAllows } from "./connector-allowlist.js";
+import {
+  COMPOSIO_CONNECTOR_ID,
+  connectorAllowed,
+  DEFAULT_CONNECTOR_POLICY,
+} from "./connector-allowlist.js";
 import { credentialDigest } from "./credential-digest.js";
 import { PipedreamConnector } from "./pipedream-connector.js";
 
@@ -30,7 +38,7 @@ export class IntegrationProviderSettings {
       Record<IntegrationProviderId, ManagedConnectorProvider>
     > = {},
     private readonly factory?: (config: IntegrationProviderConfig) => ManagedConnectorProvider,
-    private readonly connectorAllowlist: readonly string[] = [],
+    private readonly connectorPolicy: ConnectorPolicy = DEFAULT_CONNECTOR_POLICY,
   ) {
     this.secrets.onChange?.((ref) => {
       for (const [id, entry] of this.cache) if (entry.ciphertext === ref) this.cache.delete(id);
@@ -124,7 +132,7 @@ export class IntegrationProviderSettings {
       signal: AbortSignal.timeout(15_000),
     });
     return slugs.filter((slug) =>
-      connectorAllowlistAllows(this.connectorAllowlist, COMPOSIO_CONNECTOR_ID, slug),
+      connectorAllowed(this.connectorPolicy, COMPOSIO_CONNECTOR_ID, slug),
     );
   }
 

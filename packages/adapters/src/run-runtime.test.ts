@@ -1,7 +1,7 @@
 import { phoneCallSettings, resolveEncryptionKey, uploadSizeFromEnv } from "@rakazo/core";
 import { describe, expect, it } from "vitest";
+import { parseConnectorPolicy } from "./connector-allowlist.js";
 import { resolveDeploymentModel } from "./deployment-model.js";
-import { parseConnectorAllowlist } from "./connector-allowlist.js";
 import { mcpStdioOptionsFromEnv } from "./mcp-connector.js";
 import { runRuntimeEnvFromProcess } from "./run-runtime.js";
 
@@ -12,7 +12,10 @@ function previousWorkerValues(source: NodeJS.ProcessEnv) {
     dataDir: source.DATA_DIR ?? "./data",
     encryptionKey: resolveEncryptionKey(source),
     composioApiKey: source.COMPOSIO_API_KEY,
-    connectorAllowlist: parseConnectorAllowlist(source.ME_CONNECTOR_ALLOWLIST),
+    connectorPolicy: parseConnectorPolicy(
+      source.ME_CONNECTOR_DENYLIST,
+      source.ME_CONNECTOR_ALLOWLIST,
+    ),
     cursorApiKey: source.CURSOR_API_KEY,
     deploymentModelKey: key,
     deploymentModelConfigured: configured,
@@ -42,6 +45,8 @@ describe("runRuntimeEnvFromProcess", () => {
       DATA_DIR: "/var/rakazo",
       ENCRYPTION_KEY: "offline-encryption-key-at-least-32-chars",
       COMPOSIO_API_KEY: " composio-key ",
+      ME_CONNECTOR_ALLOWLIST: " slack, notion ",
+      ME_CONNECTOR_DENYLIST: " gmail,googledrive ",
       CURSOR_API_KEY: " cursor-key ",
       PI_DEFAULT_PROVIDER: "openrouter",
       OPENROUTER_API_KEY: "openrouter-key",

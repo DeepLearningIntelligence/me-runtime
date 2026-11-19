@@ -78,7 +78,7 @@ describe("ComposioConnector over the fake Composio client", () => {
 
   it("filters the catalog and refuses begin for an app the allowlist denies", async () => {
     const { connector } = setup();
-    const offered = createConnectorStack(connector, [], ["slack"])
+    const offered = createConnectorStack(connector, [], { allowlist: ["slack"], denylist: [] })
       .connector.managedProviders()
       .find((provider) => provider.describe().id === "composio")!;
 

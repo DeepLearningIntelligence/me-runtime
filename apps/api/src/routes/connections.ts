@@ -1,5 +1,9 @@
 import type { ConnectorCatalogItem } from "@rakazo/adapter-kit";
-import { connectorAllowlistAllows, planLiveConnectionSync } from "@rakazo/adapters";
+import {
+  connectorAllowed,
+  DEFAULT_CONNECTOR_POLICY,
+  planLiveConnectionSync,
+} from "@rakazo/adapters";
 import type { Actor } from "@rakazo/contracts";
 import type { Prisma, PrismaClient } from "@rakazo/db";
 import { IsolationError, recordSecurityEvent } from "@rakazo/db";
@@ -129,8 +133,8 @@ export function connectionsRoutes(ctx: RouterContext) {
                 });
               }
               return items.filter((item) =>
-                connectorAllowlistAllows(
-                  deps.env.connectorAllowlist ?? [],
+                connectorAllowed(
+                  deps.env.connectorPolicy ?? DEFAULT_CONNECTOR_POLICY,
                   item.connectorId,
                   item.slug,
                 ),
@@ -148,8 +152,8 @@ export function connectionsRoutes(ctx: RouterContext) {
         });
         return rows
           .filter((row) =>
-            connectorAllowlistAllows(
-              deps.env.connectorAllowlist ?? [],
+            connectorAllowed(
+              deps.env.connectorPolicy ?? DEFAULT_CONNECTOR_POLICY,
               row.connectorId,
               row.provider,
             ),

@@ -136,32 +136,21 @@ describe("ConnectorRegistry", () => {
     expect(events).toEqual([
       {
         type: "error",
-        message: "connector_not_allowed: destinationwrite is not offered on this deployment.",
+        message: "connector_not_allowed: composio is not offered on this deployment.",
       },
     ]);
   });
 
-  it("offers no Composio app when the allowlist is empty", async () => {
+  it("denies Gmail by default while Slack stays offered", async () => {
     const composio = new StubConnector("composio", [
       tool("GMAIL_SEND_EMAIL"),
       tool("SLACK_POST_MESSAGE"),
     ]);
     const other = new StubConnector("installed", [tool("read")]);
-    const registry = new ConnectorRegistry([composio, other], []);
+    const registry = new ConnectorRegistry([composio, other]);
 
     const discovered = await registry.discoverTools(context);
-    expect(discovered.map((entry) => entry.name)).toEqual(["read"]);
-  });
-
-  it("offers only allowlisted Composio apps and still runs an allowed one", async () => {
-    const composio = new StubConnector("composio", [
-      tool("GMAIL_SEND_EMAIL"),
-      tool("SLACK_POST_MESSAGE"),
-    ]);
-    const registry = new ConnectorRegistry([composio], ["slack"]);
-
-    const discovered = await registry.discoverTools(context);
-    expect(discovered.map((entry) => entry.name)).toEqual(["SLACK_POST_MESSAGE"]);
+    expect(discovered.map((entry) => entry.name)).toEqual(["SLACK_POST_MESSAGE", "read"]);
 
     const events: ConnectorEvent[] = [];
     for await (const event of registry.execute(
@@ -181,9 +170,42 @@ describe("ConnectorRegistry", () => {
     expect(composio.calls).toHaveLength(1);
   });
 
+  it("offers no Composio app when the allowlist is explicitly empty", async () => {
+    const composio = new StubConnector("composio", [
+      tool("GMAIL_SEND_EMAIL"),
+      tool("SLACK_POST_MESSAGE"),
+    ]);
+    const other = new StubConnector("installed", [tool("read")]);
+    const registry = new ConnectorRegistry([composio, other], { allowlist: [], denylist: [] });
+
+    const discovered = await registry.discoverTools(context);
+    expect(discovered.map((entry) => entry.name)).toEqual(["read"]);
+  });
+
+  it("narrows to the allowlist", async () => {
+    const composio = new StubConnector("composio", [
+      tool("GMAIL_SEND_EMAIL"),
+      tool("SLACK_POST_MESSAGE"),
+    ]);
+    const registry = new ConnectorRegistry([composio], { allowlist: ["slack"], denylist: [] });
+
+    const discovered = await registry.discoverTools(context);
+    expect(discovered.map((entry) => entry.name)).toEqual(["SLACK_POST_MESSAGE"]);
+  });
+
+  it("lets deny beat allow", async () => {
+    const composio = new StubConnector("composio", [tool("SLACK_POST_MESSAGE")]);
+    const registry = new ConnectorRegistry([composio], {
+      allowlist: ["slack"],
+      denylist: ["slack"],
+    });
+
+    await expect(registry.discoverTools(context)).resolves.toEqual([]);
+  });
+
   it("refuses a denied Composio connector before it is executed", async () => {
     const composio = new StubConnector("composio", [tool("GMAIL_SEND_EMAIL")]);
-    const registry = new ConnectorRegistry([composio], ["slack"]);
+    const registry = new ConnectorRegistry([composio]);
 
     const events: ConnectorEvent[] = [];
     for await (const event of registry.execute(
@@ -205,7 +227,7 @@ describe("ConnectorRegistry", () => {
 
   it("refuses a nested multi-execute action on a denied app", async () => {
     const composio = new StubConnector("composio", [tool("COMPOSIO_MULTI_EXECUTE_TOOL")]);
-    const registry = new ConnectorRegistry([composio], ["slack"]);
+    const registry = new ConnectorRegistry([composio]);
 
     const events: ConnectorEvent[] = [];
     for await (const event of registry.execute(

@@ -217,7 +217,7 @@ describe("composio tool mapping", () => {
         yield { type: "result", data: { provider: "composio" } } as ConnectorEvent;
       },
     } as never;
-    const connector = new ConnectorRegistry([destination, composio], ["destinationwrite"]);
+    const connector = new ConnectorRegistry([destination, composio]);
     const context = { userId: "u" } as AdapterContext;
     for await (const event of connector.execute(
       {

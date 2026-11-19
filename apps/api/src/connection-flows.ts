@@ -3,8 +3,9 @@ import type { AdapterContext } from "@rakazo/adapter-kit";
 import { ConnectorAuthUnavailableError } from "@rakazo/adapter-kit";
 import {
   advisoryLock,
-  connectorAllowlistAllows,
+  connectorAllowed,
   connectorNotAllowedRefusal,
+  DEFAULT_CONNECTOR_POLICY,
   pickReusableConnection,
   prepareManagedConnectorForTransaction,
   sanitizeIntegrationError,
@@ -148,7 +149,11 @@ export async function beginConnection(
 ) {
   // The policy owns the door: no row and no authorization window for a denied app.
   if (
-    !connectorAllowlistAllows(deps.env.connectorAllowlist ?? [], input.connectorId, input.provider)
+    !connectorAllowed(
+      deps.env.connectorPolicy ?? DEFAULT_CONNECTOR_POLICY,
+      input.connectorId,
+      input.provider,
+    )
   ) {
     throw new ORPCError("BAD_REQUEST", { message: connectorNotAllowedRefusal(input.provider) });
   }

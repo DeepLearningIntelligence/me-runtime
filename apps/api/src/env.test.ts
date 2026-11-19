@@ -54,12 +54,21 @@ describe("loadEnv", () => {
       expect(loadEnv({ ...base, TICKET_BOARD_ENABLED: value }).ticketBoardEnabled).toBe(false);
     expect(loadEnv({ ...base, TICKET_BOARD_ENABLED: "true" }).ticketBoardEnabled).toBe(true);
   });
-  it("offers no Composio app unless ME_CONNECTOR_ALLOWLIST names it", () => {
-    expect(loadEnv(base).connectorAllowlist).toEqual([]);
-    expect(loadEnv({ ...base, ME_CONNECTOR_ALLOWLIST: " " }).connectorAllowlist).toEqual([]);
+  it("denies the personal Google default and narrows only when the allowlist is set", () => {
+    expect(loadEnv(base).connectorPolicy).toEqual({
+      allowlist: null,
+      denylist: ["gmail", "googlecalendar", "googledrive", "googledocs", "googlesheets"],
+    });
+    expect(loadEnv({ ...base, ME_CONNECTOR_ALLOWLIST: " " }).connectorPolicy.allowlist).toBeNull();
     expect(
-      loadEnv({ ...base, ME_CONNECTOR_ALLOWLIST: "slack, Notion,slack" }).connectorAllowlist,
-    ).toEqual(["slack", "notion"]);
+      loadEnv({ ...base, ME_CONNECTOR_ALLOWLIST: "slack, Notion,slack" }).connectorPolicy,
+    ).toEqual({
+      allowlist: ["slack", "notion"],
+      denylist: ["gmail", "googlecalendar", "googledrive", "googledocs", "googlesheets"],
+    });
+    expect(
+      loadEnv({ ...base, ME_CONNECTOR_DENYLIST: " Gmail ,google-drive " }).connectorPolicy,
+    ).toEqual({ allowlist: null, denylist: ["gmail", "googledrive"] });
   });
   it("loads operator menu links and refuses to start on a bad value", () => {
     expect(loadEnv(base).navLinks).toEqual([]);

@@ -1,5 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import {
+  DEFAULT_CONNECTOR_POLICY,
   deploymentModelRole,
   findConnectedModelCredential,
   hasHostedModelCredits,
@@ -50,7 +51,7 @@ export async function meDto(deps: RouterDeps, actor: Actor): Promise<Me> {
     ticketBoardEnabled: deps.env.ticketBoardEnabled === true,
     phoneCallsEnabled: deps.env.phoneCallsEnabled === true,
     navLinks: deps.env.navLinks ?? [],
-    connectorAllowlist: deps.env.connectorAllowlist ?? [],
+    connectorPolicy: deps.env.connectorPolicy ?? DEFAULT_CONNECTOR_POLICY,
     maxUploadSizeBytes: attachmentMaxBytes(deps.env),
     maxAttachmentsPerMessage: attachmentMaxCount(deps.env),
     userId: actor.userId,

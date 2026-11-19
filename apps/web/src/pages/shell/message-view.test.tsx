@@ -398,42 +398,45 @@ const connectButton = () =>
     button.textContent?.includes("Connect"),
   );
 
-it("renders no connect card for an app the deployment does not offer", () => {
-  renderView(
-    "bot",
-    [
-      {
-        kind: "app_connect",
-        connectorId: "composio",
-        provider: "gmail",
-        name: "Gmail",
-        description: "",
-        logo: null,
-        status: "pending",
-      },
-    ],
-    { connectorAllowlist: ["slack"] },
-  );
+const appBlock = (provider: string, name: string) => ({
+  kind: "app_connect" as const,
+  connectorId: "composio",
+  provider,
+  name,
+  description: "",
+  logo: null,
+  status: "pending" as const,
+});
+
+it("denies Gmail by default while Slack stays offered", () => {
+  renderView("bot", [appBlock("gmail", "Gmail")]);
+  expect(container.textContent).not.toContain("Gmail");
+  expect(connectButton()).toBeUndefined();
+
+  renderView("bot", [appBlock("slack", "Slack")]);
+  expect(container.textContent).toContain("Slack");
+  expect(connectButton()?.textContent).toBe("Connect");
+});
+
+it("narrows to the allowlist and lets deny beat allow", () => {
+  const policy = { allowlist: ["slack"], denylist: [] };
+  renderView("bot", [appBlock("gmail", "Gmail")], { connectorPolicy: policy });
+  expect(container.textContent).not.toContain("Gmail");
+
+  renderView("bot", [appBlock("slack", "Slack")], { connectorPolicy: policy });
+  expect(container.textContent).toContain("Slack");
+
+  renderView("bot", [appBlock("gmail", "Gmail")], {
+    connectorPolicy: { allowlist: ["gmail"], denylist: ["gmail"] },
+  });
   expect(container.textContent).not.toContain("Gmail");
   expect(connectButton()).toBeUndefined();
 });
 
-it("renders a connect card for an app the deployment allows", () => {
-  renderView(
-    "bot",
-    [
-      {
-        kind: "app_connect",
-        connectorId: "composio",
-        provider: "gmail",
-        name: "Gmail",
-        description: "",
-        logo: null,
-        status: "pending",
-      },
-    ],
-    { connectorAllowlist: ["gmail"] },
-  );
+it("renders a connect card when the policy clears the default deny list", () => {
+  renderView("bot", [appBlock("gmail", "Gmail")], {
+    connectorPolicy: { allowlist: null, denylist: [] },
+  });
   expect(container.textContent).toContain("Gmail");
   expect(connectButton()?.textContent).toBe("Connect");
 });

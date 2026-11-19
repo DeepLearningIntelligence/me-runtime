@@ -1,8 +1,10 @@
 import { i18n } from "@lingui/core";
 import { useLingui } from "@lingui/react/macro";
+import { DEFAULT_CONNECTOR_POLICY } from "@rakazo/adapters/connector-allowlist";
 import type {
   BotAvatarSet,
   ComputerReleaseReason,
+  ConnectorPolicy,
   LoginFieldInput,
   MessageReaction,
   ThreadMessage,
@@ -38,7 +40,6 @@ import {
 } from "react";
 import { ActiveBotGlyph } from "../../components/ai/CollaborationMarker";
 import { VoiceChatCard } from "../../components/call/VoiceChatCard";
-import { NO_CONNECTOR_ALLOWLIST } from "../../lib/app-connect-visibility";
 import type { ArtifactTarget } from "../../lib/artifact-open";
 import { projectPageCards } from "../../lib/page-cards";
 import {
@@ -71,7 +72,7 @@ export const Transcript = memo(function Transcript({
   transcript,
   meId,
   showToolActivity,
-  connectorAllowlist = NO_CONNECTOR_ALLOWLIST,
+  connectorPolicy = DEFAULT_CONNECTOR_POLICY,
   olderCursor,
   unreadAfterSeq,
   loadingOlder,
@@ -115,8 +116,8 @@ export const Transcript = memo(function Transcript({
   transcript: FoldedTranscript<ThreadMessage>;
   meId?: string;
   showToolActivity: boolean;
-  /** ME_CONNECTOR_ALLOWLIST from bootstrap; absent means no Composio app is offered. */
-  connectorAllowlist?: readonly string[];
+  /** ME_CONNECTOR_ALLOWLIST and ME_CONNECTOR_DENYLIST from bootstrap; absent uses the default deny list. */
+  connectorPolicy?: ConnectorPolicy;
   olderCursor: number | null;
   /** The seq read up to when this chat opened; null when nothing was unread. */
   unreadAfterSeq: number | null;
@@ -663,7 +664,7 @@ export const Transcript = memo(function Transcript({
                       onOpenImportSetup={onOpenImportSetup}
                       rpc={rpc}
                       showToolActivity={showToolActivity}
-                      connectorAllowlist={connectorAllowlist}
+                      connectorPolicy={connectorPolicy}
                       onReply={onReply}
                       onMarkUnread={onMarkUnread}
                       onReact={onReact}

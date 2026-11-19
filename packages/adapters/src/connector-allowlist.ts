@@ -1,13 +1,35 @@
 import type { ConnectorCall } from "@rakazo/adapter-kit";
+import type { ConnectorPolicy } from "@rakazo/contracts";
+import { GFIN_MCP_URL } from "./gfin-endpoint.js";
 
 /**
- * ME_CONNECTOR_ALLOWLIST is the one authority for which Composio apps this deployment
- * offers. Unset or empty offers none: Composio's own toolkit settings are a mirror at
- * most, and me.io decides here.
+ * ME_CONNECTOR_DENYLIST removes Composio apps by id and ME_CONNECTOR_ALLOWLIST narrows to
+ * only the ids it names; deny wins over allow, and both are parsed once here. Unset
+ * ME_CONNECTOR_DENYLIST keeps the default list below; an unset or empty allowlist does not
+ * narrow, so every other Composio app stays offered. Composio's own toolkit settings are a
+ * mirror at most: me.io decides.
  */
 export const COMPOSIO_CONNECTOR_ID = "composio";
 
 export const CONNECTOR_NOT_ALLOWED = "connector_not_allowed";
+
+/**
+ * Personal Google content connectors this deployment never offers by default. The first
+ * three are Composio fixtures in this repo; GOOGLEDOCS is the product's onboarding slug and
+ * GOOGLESHEETS is in the published integrations list.
+ */
+export const DEFAULT_CONNECTOR_DENYLIST = [
+  "gmail",
+  "googlecalendar",
+  "googledrive",
+  "googledocs",
+  "googlesheets",
+];
+
+export const DEFAULT_CONNECTOR_POLICY: ConnectorPolicy = {
+  allowlist: null,
+  denylist: DEFAULT_CONNECTOR_DENYLIST,
+};
 
 export function normalizeConnectorId(value: string): string {
   return value
@@ -16,8 +38,7 @@ export function normalizeConnectorId(value: string): string {
     .replace(/[^a-z0-9]+/g, "");
 }
 
-/** Parse once, at startup: comma-separated app slugs such as `slack,notion`. */
-export function parseConnectorAllowlist(value: string | undefined): string[] {
+function parseConnectorList(value: string | undefined): string[] {
   const ids = new Set<string>();
   for (const raw of (value ?? "").split(",")) {
     const id = normalizeConnectorId(raw);
@@ -26,15 +47,39 @@ export function parseConnectorAllowlist(value: string | undefined): string[] {
   return [...ids];
 }
 
-/** True for every non-Composio connector; Composio apps must be named in the allowlist. */
-export function connectorAllowlistAllows(
-  allowlist: readonly string[],
+/** An allowlist that is absent or blank does not narrow; one that is present narrows, even to nothing. */
+function parseOptionalAllowlist(value: string | undefined): string[] | null {
+  return (value ?? "").trim() === "" ? null : parseConnectorList(value);
+}
+
+export function parseConnectorPolicy(
+  denylistValue: string | undefined,
+  allowlistValue: string | undefined,
+): ConnectorPolicy {
+  const denylist = parseConnectorList(denylistValue);
+  return {
+    allowlist: parseOptionalAllowlist(allowlistValue),
+    denylist: denylist.length > 0 ? denylist : [...DEFAULT_CONNECTOR_DENYLIST],
+  };
+}
+
+/** True for every non-Composio connector. Composio apps must pass deny, then allow. */
+export function connectorAllowed(
+  policy: ConnectorPolicy,
   connectorId: string,
   appId: string,
 ): boolean {
   if (connectorId !== COMPOSIO_CONNECTOR_ID) return true;
   const app = normalizeConnectorId(appId);
-  return Boolean(app) && allowlist.some((entry) => normalizeConnectorId(entry) === app);
+  if (!app) return false;
+  if (policy.denylist.some((entry) => normalizeConnectorId(entry) === app)) return false;
+  if (
+    policy.allowlist !== null &&
+    !policy.allowlist.some((entry) => normalizeConnectorId(entry) === app)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export function connectorNotAllowedRefusal(appId: string): string {
@@ -78,4 +123,25 @@ export function composioCallToolkits(call: ConnectorCall): string[] {
         .filter(Boolean),
     ),
   ];
+}
+
+/** The Go Fund It Now server is provisioned for everyone, so no card may ask to connect it. */
+export function isProvisionedGfinEndpoint(endpoint: string | null | undefined): boolean {
+  return endpoint?.trim() === GFIN_MCP_URL;
+}
+
+export type ConnectorCardRef = {
+  connectorId?: string;
+  provider: string;
+  endpoint?: string | null;
+};
+
+/** Shared by web and mobile: no card for a denied connector or the provisioned GFIN server. */
+export function connectorCardAllowed(policy: ConnectorPolicy, card: ConnectorCardRef): boolean {
+  if (isProvisionedGfinEndpoint(card.endpoint)) return false;
+  return connectorAllowed(
+    policy,
+    card.connectorId ?? COMPOSIO_CONNECTOR_ID,
+    composioToolkitId(card.provider),
+  );
 }

@@ -1,4 +1,5 @@
 import { Trans, useLingui } from "@lingui/react/macro";
+import { DEFAULT_CONNECTOR_POLICY } from "@rakazo/adapters/connector-allowlist";
 import type {
   AgentSkillCatalogEntry,
   Bot,
@@ -44,7 +45,6 @@ import { CallCard, CallReturnBar } from "../components/call/CallCard";
 import { IncomingCall } from "../components/call/IncomingCall";
 import { PageLoading } from "../components/PageLoading";
 import { PageViewHost } from "../components/pages/PageViewHost";
-import { NO_CONNECTOR_ALLOWLIST } from "../lib/app-connect-visibility";
 import type { ArtifactTarget } from "../lib/artifact-open";
 import { authClient } from "../lib/auth";
 import { peekBootstrapSeed } from "../lib/bootstrap";
@@ -1105,7 +1105,7 @@ function SpaceShell() {
               markedUnreadMessageId={read.markedUnreadMessageId}
               transcript={transcript}
               showToolActivity={showToolActivity}
-              connectorAllowlist={bootstrapMe?.connectorAllowlist ?? NO_CONNECTOR_ALLOWLIST}
+              connectorPolicy={bootstrapMe?.connectorPolicy ?? DEFAULT_CONNECTOR_POLICY}
               olderCursor={activeSnapshot?.olderCursor ?? null}
               unreadAfterSeq={read.unreadAfterSeq}
               loadingOlder={loadingOlder}

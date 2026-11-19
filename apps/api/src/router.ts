@@ -33,7 +33,7 @@ import type {
   WorkActivities,
 } from "@rakazo/adapters";
 import type { Auth } from "@rakazo/auth";
-import type { NavLink } from "@rakazo/contracts";
+import type { ConnectorPolicy, NavLink } from "@rakazo/contracts";
 import type { BoardEvents, PrismaClient, ThreadEvents } from "@rakazo/db";
 import type { BillingService } from "./billing.js";
 import type { ModelPolicy } from "./me/model-policy.js";
@@ -152,8 +152,8 @@ export interface RouterDeps {
     privacyPolicyUrl?: string;
     screenProxySecret: string;
     sandboxProvider: string;
-    /** ME_CONNECTOR_ALLOWLIST: Composio app slugs this deployment offers; empty offers none. */
-    connectorAllowlist?: string[];
+    /** ME_CONNECTOR_ALLOWLIST and ME_CONNECTOR_DENYLIST, parsed once. */
+    connectorPolicy?: ConnectorPolicy;
     /** Person-to-person invites (ME-RUN-001 D-RUN-7). */
     inviteAllocation: number;
     inviteTtlDays: number;
