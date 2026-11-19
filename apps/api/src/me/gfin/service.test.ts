@@ -4,6 +4,7 @@ import {
   GFIN_KEY_MALFORMED,
   GFIN_MCP_URL,
   GFIN_PERSONAL_KEY_PREFIX,
+  GFIN_PERSONAL_LABEL,
   GFIN_PUBLIC_LABEL,
 } from "@rakazo/adapters";
 import { createLogger, createTestSink, getLogger, installLogger } from "@rakazo/logging";
@@ -288,9 +289,9 @@ describe("gfin connection provisioning", () => {
     expect(material).toEqual({ secret: PERSONAL_KEY });
   });
 
-  it("clears a legacy house-key credential from a public row", async () => {
+  it("keeps the credential when the server is renamed, and relabels it", async () => {
     const fake = fakePrisma();
-    const legacy = await store.put(JSON.stringify({ secret: HOUSE_KEY }), {
+    const stored = await store.put(JSON.stringify({ secret: PERSONAL_KEY }), {
       operationId: "seed",
       traceId: "seed",
       spaceId: "space-1",
@@ -298,31 +299,28 @@ describe("gfin connection provisioning", () => {
       signal: new AbortController().signal,
     } as never);
     fake.secrets.push({
-      id: legacy.id,
+      id: stored.id,
       userId: USER.id,
       spaceId: null,
       kind: "mcp",
-      ciphertext: legacy.ciphertext,
+      ciphertext: stored.ciphertext,
     });
     fake.servers.push({
-      id: "srv-legacy",
+      id: "srv-renamed",
       userId: USER.id,
       spaceId: "space-1",
       slug: GFIN_CONNECTION_SLUG,
-      name: GFIN_PUBLIC_LABEL,
+      name: "Funding radar 2",
       endpoint: CONFIG.mcpUrl,
-      secretId: legacy.id,
+      secretId: stored.id,
       enabled: true,
     });
-    const outcome = await ensureGfinConnection(
-      deps(fake, { ...CONFIG, houseKey: HOUSE_KEY }),
-      USER,
-    );
-    expect(outcome).toEqual({ action: "converged", mode: "public" });
-    const row = fake.servers[0]!;
-    expect(row.name).toBe(GFIN_PUBLIC_LABEL);
-    expect(row.secretId).toBeNull();
-    expect(fake.secrets).toHaveLength(0);
+    // A rename is display text. The credential decides the lane, and no network call runs.
+    const outcome = await ensureGfinConnection(deps(fake, CONFIG), USER);
+    expect(outcome).toEqual({ action: "converged", mode: "connected" });
+    expect(fake.servers[0]!.name).toBe(GFIN_PERSONAL_LABEL);
+    expect(fake.servers[0]!.secretId).toBe(stored.id);
+    expect(fake.secrets).toHaveLength(1);
   });
 
   it("refuses a malformed per-person key by name instead of falling back", async () => {
