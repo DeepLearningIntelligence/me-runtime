@@ -30,7 +30,7 @@ export type ServiceCall = {
 };
 
 const DIRECTORY = [
-  { slug: "GMAIL", name: "Gmail", logo: null, noAuth: false },
+  { slug: "SLACK", name: "Slack", logo: null, noAuth: false },
   { slug: "CRM", name: "CRM", logo: null, noAuth: false },
   { slug: "GITHUB", name: "GitHub", logo: null, noAuth: false },
   { slug: CUSTOMER_SUPPORT_PROVIDERS.salesforce, name: "Salesforce", logo: null, noAuth: false },
@@ -105,11 +105,11 @@ export class EvalServices extends ComposioConnector {
     const inherited = await super.discoverTools(context);
     return [
       ...inherited.filter((t) => t.name.startsWith("GITHUB_")),
-      ...(connected.includes("GMAIL")
+      ...(connected.includes("SLACK")
         ? [
             tool(
-              "GMAIL_LIST_MESSAGES",
-              "Read inbox messages, with urgency and full body.",
+              "SLACK_LIST_MESSAGES",
+              "Read connected channel messages, with urgency and full body.",
               {},
               [],
               true,
@@ -243,7 +243,7 @@ export class EvalServices extends ComposioConnector {
       };
       return;
     }
-    if (call.tool === "GMAIL_LIST_MESSAGES") {
+    if (call.tool === "SLACK_LIST_MESSAGES") {
       entry.outcome = "read";
       yield { type: "result", data: { messages: structuredClone(this.inbox) } };
       return;

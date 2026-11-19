@@ -788,6 +788,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       maxAttachmentsPerMessage: env.maxAttachmentsPerMessage,
       agentRuntime: env.agentRuntime,
       modelPolicy: env.modelPolicy,
+      connectorPolicy: env.connectorPolicy,
       defaultProvider: env.defaultProvider,
       defaultModel: env.defaultModel,
       teamChatJudgeProvider: env.teamChatJudgeProvider,
