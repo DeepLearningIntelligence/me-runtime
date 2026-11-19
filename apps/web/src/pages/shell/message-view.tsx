@@ -18,7 +18,7 @@ import type {
 import type { ChildBotBlock, PeerExchange } from "@rakazo/core";
 import { isPeerReceiptBlocks, isToolActivityBlock, otherAuthor } from "@rakazo/core";
 import { BotAvatar, Button, cn, resolvePersonaColorDef } from "@rakazo/ui-web";
-import { UserRound } from "lucide-react";
+import { Link2, UserRound } from "lucide-react";
 import { memo, useCallback, useMemo } from "react";
 import { ArtifactFileCard } from "../../components/ArtifactFileCard";
 import { AskCard } from "../../components/AskCard";
@@ -37,6 +37,7 @@ import {
 } from "../../components/ToolActivityDisclosure";
 import { SkillDraftCard } from "../../components/teach/SkillDraftCard";
 import type { ArtifactTarget } from "../../lib/artifact-open";
+import { attachedLinkLabel } from "../../lib/attached-links";
 import { messageProviderLabel } from "../../lib/messaging";
 import type { PageBlock } from "../../lib/page-cards";
 import { useOpenPage } from "../../lib/pages";
@@ -590,6 +591,30 @@ export const MessageView = memo(function MessageView({
                   mimeType={block.mimeType}
                   size={block.size}
                 />
+              </div>
+            );
+          }
+          if (block.kind === "attached_links") {
+            return (
+              <div
+                key={i}
+                data-testid="message-attached-links"
+                className={cn(
+                  "flex max-w-full flex-wrap gap-1.5",
+                  message.role === "user" ? "justify-end" : "justify-start",
+                )}
+              >
+                {block.links.map((link) => (
+                  <span
+                    key={link}
+                    title={link}
+                    dir="auto"
+                    className="inline-flex max-w-[260px] items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1 text-label text-foreground/75"
+                  >
+                    <Link2 size={12} strokeWidth={1.8} className="shrink-0" />
+                    <span className="truncate">{attachedLinkLabel(link)}</span>
+                  </span>
+                ))}
               </div>
             );
           }

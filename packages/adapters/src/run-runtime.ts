@@ -229,7 +229,9 @@ export function createRunRuntime(
     phoneCallRingSeconds: env.phoneCallRingSeconds,
     phoneCallCooldownMinutes: env.phoneCallCooldownMinutes,
     inboundEmailDomain: env.inboundEmailDomain,
-    messaging: messaging ? createMessagingContextLoader(deps.prisma) : undefined,
+    messaging: messaging
+      ? { ...createMessagingContextLoader(deps.prisma), surface: messaging }
+      : undefined,
     web: createWebProvider(),
   });
   const jobHandlers = createBackgroundJobHandlers({

@@ -2030,6 +2030,48 @@ export const agentConnectionTools: ConnectorTool[] = [
       required: ["address", "message"],
     },
   },
+  {
+    name: "me_send_meme",
+    description:
+      "Send a meme built from one or two images into this Space's chat. At least one of image1 or image2 is required; with no image the call refuses and sends nothing. Image values are http(s) URLs or data:image URLs.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spaceId: { type: "string", description: "The Space to send in; must be this run's Space." },
+        image1: { type: "string", description: "First image: an http(s) URL or data:image URL." },
+        image2: { type: "string", description: "Optional second image." },
+      },
+      required: ["spaceId"],
+    },
+    readOnly: false,
+  },
+  {
+    name: "me_meme_from_text",
+    description:
+      "Send a text meme rendered as an image into this Space's chat. The call refuses when text is blank and sends nothing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spaceId: { type: "string", description: "The Space to send in; must be this run's Space." },
+        text: { type: "string", description: "The caption the meme image renders." },
+      },
+      required: ["spaceId", "text"],
+    },
+    readOnly: false,
+  },
+  {
+    name: "me_gps",
+    description:
+      "Report the last location a person shared in this Space's messaging chat, with how many minutes ago it was captured. When nobody shared one, returns available false with reason no_location_captured. Never guesses.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spaceId: { type: "string", description: "The Space to read; must be this run's Space." },
+      },
+      required: ["spaceId"],
+    },
+    readOnly: true,
+  },
 ];
 
 /** Shared documents are read by every bot, so a single save stays bounded. */

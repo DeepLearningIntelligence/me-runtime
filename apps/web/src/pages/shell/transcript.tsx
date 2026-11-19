@@ -27,7 +27,7 @@ import {
 import type { GroupAvatarMember } from "@rakazo/ui-web";
 import { Button, cn, Spinner } from "@rakazo/ui-web";
 import { ArrowDown } from "lucide-react";
-import type { CSSProperties, RefObject } from "react";
+import type { CSSProperties, DragEvent, RefObject } from "react";
 import {
   Fragment,
   memo,
@@ -41,6 +41,7 @@ import {
 import { ActiveBotGlyph } from "../../components/ai/CollaborationMarker";
 import { VoiceChatCard } from "../../components/call/VoiceChatCard";
 import type { ArtifactTarget } from "../../lib/artifact-open";
+import { droppedLinks } from "../../lib/attached-links";
 import { projectPageCards } from "../../lib/page-cards";
 import {
   isDetachedRange,
@@ -105,6 +106,7 @@ export const Transcript = memo(function Transcript({
   onOpenComputer,
   onReleaseComputer,
   onOpenImportSetup,
+  onAttachLinks,
   rpc,
 }: {
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -165,6 +167,8 @@ export const Transcript = memo(function Transcript({
     reason: ComputerReleaseReason,
   ) => Promise<void>;
   onOpenImportSetup?: (target: ImportSetupTarget) => void;
+  /** Links and text dropped on the feed; they ride the next message this chat sends. */
+  onAttachLinks: (links: string[]) => void;
   rpc: ReturnType<typeof createSpaceRpc>;
 }) {
   const { t } = useLingui();
@@ -265,6 +269,12 @@ export const Transcript = memo(function Transcript({
     rangeText: string;
   } | null>(null);
   const selectingWithMouse = useRef(false);
+  // A drop on the feed queues its links for the next message instead of sending now.
+  const [dragActive, setDragActive] = useState(false);
+  const dragDepth = useRef(0);
+  const canDropText = (event: DragEvent) =>
+    event.dataTransfer.types.includes("text/uri-list") ||
+    event.dataTransfer.types.includes("text/plain");
 
   // A streaming edit can replace the selected nodes without firing selectionchange: replacing
   // both endpoints collapses the range, replacing one moves it; the pill must not keep its
@@ -488,9 +498,32 @@ export const Transcript = memo(function Transcript({
 
   return (
     <div className="relative flex min-h-0 flex-1">
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: a drag drop has no keyboard equivalent; the composer sends the same links by paste. */}
       <div
         ref={scrollRef}
         data-testid="transcript"
+        onDragEnter={(event) => {
+          if (!canDropText(event)) return;
+          dragDepth.current += 1;
+          setDragActive(true);
+        }}
+        onDragOver={(event) => {
+          if (!canDropText(event)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+        }}
+        onDragLeave={() => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDragActive(false);
+        }}
+        onDrop={(event) => {
+          dragDepth.current = 0;
+          setDragActive(false);
+          const links = droppedLinks(event.dataTransfer);
+          if (!links.length) return;
+          event.preventDefault();
+          onAttachLinks(links);
+        }}
         onPointerDown={(event) => {
           lastScrollTop.current = event.currentTarget.scrollTop;
           autoScrolling.current = false;
@@ -702,6 +735,14 @@ export const Transcript = memo(function Transcript({
           <ActiveBotGlyph bots={workingBots} label={workingLabel} />
         ) : null}
       </div>
+      {dragActive ? (
+        <div
+          data-testid="feed-drop-hint"
+          className="pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-border bg-background/75 text-body text-muted-foreground"
+        >
+          {t`Drop to attach to your next message`}
+        </div>
+      ) : null}
       {quoteDraft ? (
         <QuoteSelectionButton
           range={quoteDraft.range}

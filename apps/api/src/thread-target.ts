@@ -50,6 +50,7 @@ import {
 } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 import {
+  attachedLinksPrompt,
   buildSendPrompt,
   buildUserMessageBlocks,
   resolveGroupSendAttachments,
@@ -514,6 +515,7 @@ export async function sendThreadMessage(
     mentions?: MentionTargetInput[];
     replyToMessageId?: string;
     replyQuote?: string;
+    attachedLinks?: string[];
     fromPage?: true;
     clientNonce?: string;
     /** No model to start a turn: the send may only stop active work. */
@@ -677,6 +679,7 @@ export async function sendThreadMessage(
         const blocks = buildUserMessageBlocks(
           input.text,
           sendAttachmentBlocks(attachmentBlocks, artifacts, input.imageHandling),
+          input.attachedLinks,
         );
         const message = await createThreadMessageInTransaction(tx, {
           threadId: target.threadId,
@@ -807,7 +810,11 @@ export async function sendThreadMessage(
             botId: target.botId,
             threadId: target.threadId,
             userId: actor.userId,
-            prompt: buildSendPrompt(input.text, artifacts, connectorNames),
+            prompt: buildSendPrompt(
+              attachedLinksPrompt(input.text, input.attachedLinks),
+              artifacts,
+              connectorNames,
+            ),
             status: "queued",
           },
         });
@@ -910,6 +917,7 @@ export async function sendThreadMessage(
       const blocks = buildUserMessageBlocks(
         input.text,
         sendAttachmentBlocks(attachmentBlocks, artifacts, input.imageHandling),
+        input.attachedLinks,
       );
       const message = await createThreadMessageInTransaction(tx, {
         threadId: target.threadId,
@@ -1050,7 +1058,11 @@ export async function sendThreadMessage(
             botId,
             threadId: target.threadId,
             userId: actor.userId,
-            prompt: buildSendPrompt(input.text, artifacts, connectorNames),
+            prompt: buildSendPrompt(
+              attachedLinksPrompt(input.text, input.attachedLinks),
+              artifacts,
+              connectorNames,
+            ),
             status: "queued",
           },
         });

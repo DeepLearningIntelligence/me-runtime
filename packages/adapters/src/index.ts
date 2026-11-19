@@ -96,6 +96,7 @@ export * from "./fleet-tools.js";
 export { DEFAULT_FOLLOW_UP_PREFERENCE } from "./follow-up.js";
 export * from "./gfin-connection.js";
 export * from "./github-webhook-emulator.js";
+export * from "./gps-tools.js";
 export * from "./graphql-connectors.js";
 export * from "./group-handoff.js";
 export * from "./home.js";
@@ -126,6 +127,7 @@ export * from "./mcp-transport.js";
 export * from "./media-generation-factory.js";
 export * from "./media-generation-provider.js";
 export * from "./media-video-poll.js";
+export * from "./meme-tools.js";
 export {
   AGENT_MEMORY_MAX_BYTES,
   buildAgentMemoryPrompt,
@@ -223,6 +225,7 @@ export { SupermemoryMemoryProvider } from "./supermemory-memory-provider.js";
 export * from "./task-catalog.js";
 export * from "./teaching-session.js";
 export * from "./team-chat-messaging.js";
+export * from "./thinking-music.js";
 export * from "./third-party-connector-emulator.js";
 export * from "./ticket-changes.js";
 export * from "./ticket-tools.js";

@@ -126,6 +126,15 @@ export type AskReceipt = z.infer<typeof AskReceipt>;
 export const MessageBlock = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("text"), text: z.string() }),
   z.object({
+    /**
+     * URLs and text the person dropped on the feed, attached to the next message they
+     * sent. One chip per entry, so the message keeps what they dragged without adding
+     * words to the text it carried.
+     */
+    kind: z.literal("attached_links"),
+    links: z.array(z.string().trim().min(1).max(2048)).min(1).max(20),
+  }),
+  z.object({
     kind: z.literal("card"),
     lines: z.array(z.object({ k: z.string(), v: z.string() })),
   }),

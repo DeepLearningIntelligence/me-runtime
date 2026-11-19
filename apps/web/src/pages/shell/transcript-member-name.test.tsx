@@ -93,6 +93,7 @@ function renderTranscript(messages: ThreadMessage[], roster: Roster) {
     onScrollRequestHandled: vi.fn(),
     followRequest: 0,
     callHoldsSpeaker: false,
+    onAttachLinks: vi.fn(),
     artifactTarget: roster.members ? { groupId: "group" } : { botId: G1 },
     transcript: foldPeerReplies(messages, { includePeerReceipts: true }),
     showToolActivity: false,

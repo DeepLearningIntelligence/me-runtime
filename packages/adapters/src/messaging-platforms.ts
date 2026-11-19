@@ -642,6 +642,30 @@ function whatsappMedium(raw: unknown): MessagingMedium {
   }
 }
 
+/**
+ * The coordinates a platform message carries, when it carries any. WhatsApp
+ * nests them under message.location, Telegram under location. The label keeps
+ * what the platform calls the place (a name, an address); absent means none.
+ */
+export function inboundLocation(
+  provider: string,
+  raw: unknown,
+): { latitude: number; longitude: number; label?: string } | undefined {
+  const record = asRecord(raw);
+  const source =
+    provider === "whatsapp"
+      ? asRecord(asRecord(record?.message)?.location)
+      : asRecord(record?.location);
+  const latitude = source?.latitude;
+  const longitude = source?.longitude;
+  if (typeof latitude !== "number" || typeof longitude !== "number") return undefined;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return undefined;
+  const label = [source?.name, source?.address]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(", ");
+  return label ? { latitude, longitude, label } : { latitude, longitude };
+}
+
 /** Slack's marker for a dispatched event; it turns Slack's retries into no-ops. */
 function slackRedeliveryKeys(payload: unknown): string[] {
   const eventId = stringField(asRecord(payload) ?? {}, "event_id");

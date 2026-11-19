@@ -248,6 +248,11 @@ const threadSendFields = threadTarget.safeExtend({
     .optional(),
   replyToMessageId: Id.optional(),
   replyQuote: z.string().trim().min(1).max(REPLY_QUOTE_MAX_LENGTH).optional(),
+  /**
+   * URLs and text the person dropped on the feed, carried by this message as an
+   * `attached_links` block. Kept apart from `text` so the message keeps its words.
+   */
+  attachedLinks: z.array(z.string().trim().min(1).max(2048)).max(20).optional(),
   /** Sent from the open page: a reply to its card that quotes nothing. */
   fromPage: z.literal(true).optional(),
   clientNonce: z.string().min(1).max(200).optional(),
@@ -256,10 +261,11 @@ const threadSendFields = threadTarget.safeExtend({
 export const threadSendInput = threadSendFields.superRefine((input, ctx) => {
   const text = input.text?.trim() ?? "";
   const artifactIds = input.artifactIds ?? [];
-  if (!text && artifactIds.length === 0) {
+  const attachedLinks = input.attachedLinks ?? [];
+  if (!text && artifactIds.length === 0 && attachedLinks.length === 0) {
     ctx.addIssue({
       code: "custom",
-      message: "Provide text or at least one attachment",
+      message: "Provide text, an attachment, or an attached link",
       path: ["text"],
     });
   }

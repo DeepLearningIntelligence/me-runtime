@@ -78,6 +78,8 @@ function renderComposer(
     activeName: "Ada",
     running: false,
     pendingAttachments: [],
+    attachedLinks: [],
+    onRemoveLink: () => {},
     attachmentNotice: null,
     sendError: null,
     onOpenModels: () => {},

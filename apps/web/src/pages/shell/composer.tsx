@@ -54,6 +54,7 @@ import { previewMessageText } from "./chat-shared";
 import { ComposerError } from "./composer-error";
 import { ComposerChip, ComposerMentionHighlights } from "./composer-mentions";
 import {
+  AttachedLinkChips,
   ComposerActions,
   MentionPicker,
   PendingAttachmentChips,
@@ -72,6 +73,8 @@ const ComposerBody = memo(function Composer({
   running,
   disabled,
   pendingAttachments,
+  attachedLinks,
+  onRemoveLink,
   attachmentNotice,
   sendError,
   imageConfirmation,
@@ -108,6 +111,9 @@ const ComposerBody = memo(function Composer({
   running: boolean;
   disabled?: boolean;
   pendingAttachments: PendingAttachment[];
+  /** Links dropped on the feed, waiting for the next message. */
+  attachedLinks: string[];
+  onRemoveLink: (link: string) => void;
   attachmentNotice: string | null;
   sendError: string | null;
   imageConfirmation?: boolean;
@@ -234,7 +240,8 @@ const ComposerBody = memo(function Composer({
       const reviewFirst =
         compositionRef.current.text.trim().length > 0 ||
         selectedSkill !== null ||
-        pendingAttachments.length > 0;
+        pendingAttachments.length > 0 ||
+        attachedLinks.length > 0;
       if (!appendDictation(text) || reviewFirst) return;
       const clientNonce = newClientId();
       retryNonce.current = clientNonce;
@@ -278,7 +285,10 @@ const ComposerBody = memo(function Composer({
   // came; its nonce is stored beside it. Anything that would change the next
   // payload (attachments, an armed reply, an open page) disqualifies the stored nonce.
   const [storedRetryNonce] = useState(() =>
-    pendingAttachments.length === 0 && !replyTarget && openPageId === null
+    pendingAttachments.length === 0 &&
+    attachedLinks.length === 0 &&
+    !replyTarget &&
+    openPageId === null
       ? readComposerRetryNonce(draftKey)
       : null,
   );
@@ -391,7 +401,10 @@ const ComposerBody = memo(function Composer({
     onDropFiles: pickAttachments,
   });
   const canSend =
-    draft.trim().length > 0 || selectedSkill !== null || pendingAttachments.length > 0;
+    draft.trim().length > 0 ||
+    selectedSkill !== null ||
+    pendingAttachments.length > 0 ||
+    attachedLinks.length > 0;
 
   function markEdited() {
     onDraftEdited?.();
@@ -456,6 +469,7 @@ const ComposerBody = memo(function Composer({
     const nonceRecoverable =
       !replyTarget &&
       pendingAttachments.length === 0 &&
+      attachedLinks.length === 0 &&
       selectedSkill === null &&
       openPageId === null;
     const clientNonce =
@@ -638,6 +652,13 @@ const ComposerBody = memo(function Composer({
         onRemove={(attachment) => {
           markEdited();
           onRemoveAttachment(attachment);
+        }}
+      />
+      <AttachedLinkChips
+        links={attachedLinks}
+        onRemove={(link) => {
+          markEdited();
+          onRemoveLink(link);
         }}
       />
       {mentionPickerOpen ? (

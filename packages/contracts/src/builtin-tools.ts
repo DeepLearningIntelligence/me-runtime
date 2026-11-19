@@ -107,6 +107,9 @@ export const BUILTIN_TOOL_NAMES = [
   "connect_agent",
   "respond_agent_connection",
   "message_agent",
+  "me_send_meme",
+  "me_meme_from_text",
+  "me_gps",
 ] as const;
 
 export const BuiltinToolNameSchema = z.enum(BUILTIN_TOOL_NAMES);

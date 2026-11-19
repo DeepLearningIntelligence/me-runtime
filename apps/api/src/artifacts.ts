@@ -686,12 +686,28 @@ export async function resolveGroupSendAttachments(
 export function buildUserMessageBlocks(
   text: string | undefined,
   attachmentBlocks: ReturnType<typeof messageBlockForArtifact>[],
+  attachedLinks: string[] = [],
 ) {
   const blocks = [];
   const caption = text?.trim();
   if (caption) blocks.push({ kind: "text" as const, text: caption });
+  if (attachedLinks.length) {
+    blocks.push({ kind: "attached_links" as const, links: attachedLinks });
+  }
   blocks.push(...attachmentBlocks);
   return blocks;
+}
+
+/**
+ * The links the bot reads in its prompt, one per line. The message keeps them as
+ * chips; without this the model would never see what the person dropped.
+ */
+export function attachedLinksPrompt(text: string | undefined, attachedLinks?: string[]) {
+  const links = attachedLinks ?? [];
+  if (!links.length) return text;
+  const list = `Attached links:\n${links.map((link) => `- ${link}`).join("\n")}`;
+  const trimmed = text?.trim();
+  return trimmed ? `${trimmed}\n\n${list}` : list;
 }
 
 export function buildSendPrompt(

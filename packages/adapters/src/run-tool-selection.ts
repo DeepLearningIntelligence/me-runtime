@@ -41,6 +41,7 @@ export const READ_ONLY_AGENT_TOOLS = new Set([
   "list_secrets",
   "cloud_agent_status",
   "purchase_status",
+  "me_gps",
 ]);
 
 /** The bot's own inbox, offered only in its owner's runs outside groups and channels. */

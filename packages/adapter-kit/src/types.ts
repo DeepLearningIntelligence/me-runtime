@@ -1039,6 +1039,8 @@ export interface MessagingInboundMessage {
   departures?: { addresses: string[]; botLeft: boolean };
   content: string;
   mediaUrl: string | null;
+  /** A location the platform reported with this message, when it carries one. */
+  location?: { latitude: number; longitude: number; label?: string };
   /** Files the platform only serves to the bot's credentials (Slack url_private, …). */
   attachments?: MessagingInboundAttachment[];
   /** The platform reports that this group message @-mentions the bot. */

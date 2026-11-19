@@ -1141,6 +1141,7 @@ function SpaceShell() {
               onOpenComputer={computerControls.onOpenComputer}
               onReleaseComputer={computerControls.onReleaseComputer}
               onOpenImportSetup={openImportSetup}
+              onAttachLinks={composer.attachLinks}
               rpc={rpc}
             />
           )}
@@ -1162,6 +1163,8 @@ function SpaceShell() {
               running={composerRunning}
               disabled={Boolean(recordingSkill)}
               pendingAttachments={composer.activePendingAttachments}
+              attachedLinks={composer.pendingLinks}
+              onRemoveLink={composer.removeLink}
               attachmentNotice={composer.attachmentNotice}
               sendError={sendError}
               imageConfirmation={composer.imageConfirmation}
