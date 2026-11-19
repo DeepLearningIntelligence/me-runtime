@@ -52,6 +52,13 @@ describe("follow-up silence reasons", () => {
     expect(reason()).toBeNull();
   });
 
+  it("enforces quiet hours and the cap with no preference row", () => {
+    expect(reason({ preference: null, now: new Date("2026-11-19T23:30:00Z") })).toBe("quiet_hours");
+    expect(reason({ preference: null, deliveriesToday: DEFAULT_FOLLOW_UP_DAILY_CAP })).toBe(
+      "over_cap",
+    );
+  });
+
   it("stays silent for a resolved item", () => {
     expect(reason({ item: { status: "done", updatedAt: CHANGED_AT } })).toBe("resolved");
   });
@@ -319,6 +326,8 @@ function wakeHarness(
       },
     },
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma),
+    // The per-person lock is asserted in the Postgres suite; here it only has to exist.
+    $executeRaw: async () => 1,
   } as unknown as PrismaClient;
   const deps = {
     prisma,

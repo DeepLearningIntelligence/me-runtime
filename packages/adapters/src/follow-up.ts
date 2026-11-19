@@ -108,24 +108,32 @@ export function followUpSilenceReason(input: {
   timezone: string;
 }): FollowUpSilenceReason | null {
   const { state, item, preference, optedOut, deliveriesToday, now, timezone } = input;
+  // A person with no row gets the same policy the row would have: the database defaults are
+  // the product's defaults, not a bypass. Reading them only when a row exists let a consented
+  // follow-up speak during quiet hours and ignored the daily cap entirely.
+  const policy: FollowUpPreference = preference ?? {
+    followUps: true,
+    quietHoursStart: DEFAULT_QUIET_HOURS_START,
+    quietHoursEnd: DEFAULT_QUIET_HOURS_END,
+    followUpDailyCap: DEFAULT_FOLLOW_UP_DAILY_CAP,
+  };
   if (!state.agreedAt) return "not_opted_in";
   if (state.status === "dismissed") return "dismissed";
   if (optedOut) return "opted_out";
-  if (preference && !preference.followUps) return "preference_off";
+  if (!policy.followUps) return "preference_off";
   if (!item) return "item_missing";
   if (item.status === "done") return "resolved";
   if (item.updatedAt.getTime() <= Date.parse(state.seenUpdatedAt)) return "unchanged";
   if (
-    preference &&
     inQuietHours(
       minuteOfLocalDay(now, timezone),
-      preference.quietHoursStart,
-      preference.quietHoursEnd,
+      policy.quietHoursStart,
+      policy.quietHoursEnd,
     )
   ) {
     return "quiet_hours";
   }
-  if (preference && deliveriesToday >= preference.followUpDailyCap) return "over_cap";
+  if (deliveriesToday >= policy.followUpDailyCap) return "over_cap";
   return null;
 }
 
@@ -185,6 +193,12 @@ export async function wakeFollowUp(
     }),
   ]);
   const timezone = user?.timezone ?? "UTC";
+  const policy: FollowUpPreference = preference ?? {
+    followUps: true,
+    quietHoursStart: DEFAULT_QUIET_HOURS_START,
+    quietHoursEnd: DEFAULT_QUIET_HOURS_END,
+    followUpDailyCap: DEFAULT_FOLLOW_UP_DAILY_CAP,
+  };
   const deliveriesToday = await deps.prisma.run.count({
     where: {
       userId: routine.userId,
@@ -195,7 +209,7 @@ export async function wakeFollowUp(
   const reason = followUpSilenceReason({
     state,
     item,
-    preference,
+    preference: policy,
     optedOut: !bot?.dailyCheckIns,
     deliveriesToday,
     now,
@@ -210,14 +224,25 @@ export async function wakeFollowUp(
     return true;
   }
 
-  let run: { id: string } | null;
+  let run: { id: string };
   try {
-    run = await deps.prisma.$transaction(async (tx) => {
+    const outcome = await deps.prisma.$transaction(async (tx) => {
+      // One follow-up at a time for one person. The count and the claim must see each
+      // other, or two routines each count zero deliveries and both speak on the same day.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"follow_up:" + routine.userId}))`;
       const claimed = await tx.routine.updateMany({
         where: { id: routine.id, active: true, nextRunAt: input.scheduledAt },
         data: { active: false, nextRunAt: null, lastRunAt: now },
       });
-      if (claimed.count !== 1) return null;
+      if (claimed.count !== 1) return "claimed_elsewhere" as const;
+      const delivered = await tx.run.count({
+        where: {
+          userId: routine.userId,
+          clientNonce: { startsWith: FOLLOW_UP_NONCE_PREFIX },
+          createdAt: { gte: localDayStart(now, timezone) },
+        },
+      });
+      if (delivered >= policy.followUpDailyCap) return "over_cap" as const;
       const task = await tx.task.create({
         data: {
           spaceId: routine.spaceId,
@@ -243,6 +268,11 @@ export async function wakeFollowUp(
         select: { id: true },
       });
     });
+    if (typeof outcome === "string") {
+      logSilent(routine.id, state.itemId, outcome);
+      return true;
+    }
+    run = outcome;
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
     // The run committed before the routine claim was cleared; the key stops the second send.
@@ -251,10 +281,6 @@ export async function wakeFollowUp(
       data: { active: false, nextRunAt: null },
     });
     logSilent(routine.id, state.itemId, "already_delivered");
-    return true;
-  }
-  if (!run) {
-    logSilent(routine.id, state.itemId, "claimed_elsewhere");
     return true;
   }
   try {
