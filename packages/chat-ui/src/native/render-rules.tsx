@@ -6,6 +6,7 @@ import type {
 import { renderRules as libraryRenderRules } from "@ronradtke/react-native-markdown-display";
 import type { ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { calloutVariant } from "../directives";
 import {
   inlineMarkdownImageSrc,
   isProseFence,
@@ -20,6 +21,7 @@ import { astText, cellPlainText, enclosingLink, soleRemoteImage } from "./ast";
 import { MarkdownMention, MarkdownPageChip } from "./chips";
 import { CodeFence, CodeScrollView, MermaidFence, ProseFence } from "./code";
 import { contraryDirection } from "./direction";
+import { NativeCallout, NativeCollapsible } from "./directives";
 import { FitImage, LinkedRemoteImage, RemoteMarkdownImage } from "./images";
 import {
   ISOLATE,
@@ -79,6 +81,21 @@ export const renderRules: RenderRules = {
       </View>
     );
   },
+  chat_callout: (node, children, _parents, styleMap) => (
+    <NativeCallout
+      key={node.key}
+      title={node.attributes.title}
+      variant={calloutVariant(node.attributes.variant)}
+      styleMap={styleMap}
+    >
+      {children}
+    </NativeCallout>
+  ),
+  chat_details: (node, children, _parents, styleMap) => (
+    <NativeCollapsible key={node.key} title={node.attributes.title ?? ""} styleMap={styleMap}>
+      {children}
+    </NativeCollapsible>
+  ),
   textgroup: (node, children, _parent, styleMap) => (
     <Text
       key={node.key}

@@ -1,0 +1,102 @@
+.rk-chat-callout {
+  display: flex;
+  gap: 0.6em;
+  margin: 0.65em 0;
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--rk-callout-accent);
+  border-radius: 0.65em;
+  background: var(--secondary);
+  padding: 0.65em 0.8em;
+}
+
+.rk-chat-callout-info {
+  --rk-callout-accent: var(--link);
+}
+
+.rk-chat-callout-warning {
+  --rk-callout-accent: var(--warning);
+}
+
+.rk-chat-callout-success {
+  --rk-callout-accent: var(--success);
+}
+
+.rk-chat-callout-tip {
+  --rk-callout-accent: var(--primary);
+}
+
+.rk-chat-callout-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.1em;
+  height: 1.1em;
+  margin-top: 0.15em;
+  color: var(--rk-callout-accent);
+}
+
+.rk-chat-callout-body {
+  min-width: 0;
+  color: var(--foreground);
+}
+
+.rk-chat-callout-title {
+  margin: 0 0 0.2em;
+  color: var(--rk-callout-accent);
+  font-weight: 600;
+}
+
+.rk-chat-callout-body > :last-child {
+  margin-bottom: 0;
+}
+
+.rk-chat-collapsible {
+  margin: 0.65em 0;
+  border: 1px solid var(--border);
+  border-radius: 0.65em;
+  background: var(--secondary);
+}
+
+.rk-chat-collapsible > summary {
+  cursor: pointer;
+  padding: 0.55em 0.8em;
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.rk-chat-collapsible > summary::marker {
+  color: var(--muted-foreground);
+}
+
+.rk-chat-collapsible[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.rk-chat-collapsible > :not(summary) {
+  margin-inline: 0.8em;
+}
+
+.rk-chat-collapsible > :last-child {
+  margin-bottom: 0.55em;
+}
+
+.rk-chat-directive-literal {
+  white-space: pre-wrap;
+  color: var(--muted-foreground);
+}
+
+.rk-chat-markdown-language {
+  position: absolute;
+  top: 0.6em;
+  inset-inline-start: 0.85em;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.72em;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+.rk-chat-markdown-pre-wrap-labeled pre {
+  padding-top: 1.9em;
+}
