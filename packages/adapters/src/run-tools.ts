@@ -22,6 +22,7 @@ import { cloudAgentTool, connectorTool, integrationTools } from "./run-tools-int
 import { memoryTools } from "./run-tools-memory.js";
 import { messagingTools } from "./run-tools-messaging.js";
 import { pageTools } from "./run-tools-pages.js";
+import { piiTools } from "./run-tools-pii.js";
 import { preferenceTools } from "./run-tools-preferences.js";
 import { purchaseTools } from "./run-tools-purchases.js";
 import { secretTools } from "./run-tools-secrets.js";
@@ -48,6 +49,7 @@ const TOOL_HANDLERS = new Map<string, ToolHandler>([
   ...Object.entries(taskTools),
   ...Object.entries(messagingTools),
   ...Object.entries(secretTools),
+  ...Object.entries(piiTools),
   ...Object.entries(fleetTools),
   [USER_COMPUTER_SHELL_TOOL, userComputerShell],
   [USER_COMPUTER_OBSERVE_TOOL, userComputerObserve],

@@ -2423,6 +2423,20 @@ model VaultCredential {
   @@map("vault_credentials")
 }
 
+/// Credentials a person uploaded through a signed PII tunnel. Only the sealed
+/// ciphertext and its record id are stored; no row, log or prompt holds values.
+model PiiUpload {
+  id         String   @id @default(cuid())
+  userId     String
+  /// The encrypted record's id, which the ciphertext's authenticated data binds to.
+  secretId   String
+  ciphertext String
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("pii_uploads")
+}
+
 model ExternalConversation {
   id                       String            @id @default(cuid())
   provider                 String

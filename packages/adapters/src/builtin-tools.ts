@@ -609,6 +609,13 @@ export const builtinAgentTools: ConnectorTool[] = [
     },
   },
   {
+    name: "me_pii_link",
+    description:
+      "Create a signed, one-time link where this person signs in and uploads a credential through an authenticated tunnel. Send the returned URL to the person in WhatsApp and ask them to open it there. The link expires in 15 minutes, opens once, and stores only an encrypted copy. Never ask for or accept credentials in chat.",
+    inputSchema: { type: "object", properties: {} },
+    readOnly: false,
+  },
+  {
     name: "message_user",
     // Read lazily: the cap comes from process.env, which may be filled after import.
     get description() {
