@@ -1931,6 +1931,36 @@ export const builtinAgentTools: ConnectorTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "me_deliverable",
+    description:
+      "Publish a white paper or report as a markdown page under docs/publications and return the page URL. Pass the space it belongs to, the kind, a title, and the research blocks (text, chart, image, file, page) that belong on the page. When blocks are given they are also posted as a Visual Pack message in this chat, pointing at the page. Use it after the research is done; it does not replace the final answer.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spaceId: {
+          type: "string",
+          description: "The space the page belongs to; must be this run's space.",
+        },
+        kind: { type: "string", enum: ["white_paper", "report"] },
+        title: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description: "Title shown on the page and in the Visual Pack.",
+        },
+        blocks: {
+          type: "array",
+          maxItems: 40,
+          description:
+            "Research blocks for the page and the Visual Pack: text prose, charts, images, files or pages.",
+          items: { type: "object" },
+        },
+      },
+      required: ["spaceId", "kind", "title"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** Agent-connection tools, exposed only when the messaging surface is enabled. */
