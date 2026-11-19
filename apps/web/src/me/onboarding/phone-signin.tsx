@@ -20,11 +20,13 @@ const primaryClass = "mt-3 h-12 w-full rounded-xl text-body-lg";
 
 const DOOR_KEY = "me.phone-door";
 
-function loadDoor(): StartedDoor | null {
+function loadDoor(inviteToken: string | undefined): StartedDoor | null {
   try {
     const raw = window.sessionStorage.getItem(DOOR_KEY);
     if (!raw) return null;
-    const door = JSON.parse(raw) as StartedDoor;
+    const saved = JSON.parse(raw) as { door?: StartedDoor; inviteToken?: string | null };
+    if (saved.inviteToken !== (inviteToken ?? null) || !saved.door) return null;
+    const door = saved.door;
     if (
       typeof door.nonce !== "string" ||
       typeof door.waLink !== "string" ||
@@ -42,10 +44,14 @@ function loadDoor(): StartedDoor | null {
   }
 }
 
-function saveDoor(door: StartedDoor | null): void {
+function saveDoor(door: StartedDoor | null, inviteToken?: string): void {
   try {
-    if (door) window.sessionStorage.setItem(DOOR_KEY, JSON.stringify(door));
-    else window.sessionStorage.removeItem(DOOR_KEY);
+    if (door) {
+      window.sessionStorage.setItem(
+        DOOR_KEY,
+        JSON.stringify({ door, inviteToken: inviteToken ?? null }),
+      );
+    } else window.sessionStorage.removeItem(DOOR_KEY);
   } catch {
     // Blocked storage only loses the round trip; the door still works in one stretch.
   }
@@ -64,7 +70,11 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
   const { t } = useLingui();
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get("invite") ?? undefined;
-  const [door, setDoor] = useState<StartedDoor | null>(() => loadDoor());
+  const [attempt, setDoor] = useState(() => ({
+    door: loadDoor(inviteToken),
+    inviteToken,
+  }));
+  const door = attempt.inviteToken === inviteToken ? attempt.door : null;
   const [code, setCode] = useState("");
   const [pending, setPending] = useState(false);
   const [refusal, setRefusal] = useState<DoorRefusal | null>(null);
@@ -103,8 +113,8 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
     try {
       const started = await startPhoneDoor({ inviteToken: inviteToken || undefined });
       if (mounted.current) {
-        setDoor(started);
-        saveDoor(started);
+        setDoor({ door: started, inviteToken });
+        saveDoor(started, inviteToken);
         setCode("");
       }
     } catch (caught) {
@@ -137,7 +147,7 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
   }
 
   function restart() {
-    setDoor(null);
+    setDoor({ door: null, inviteToken });
     saveDoor(null);
     setCode("");
     setRefusal(null);
