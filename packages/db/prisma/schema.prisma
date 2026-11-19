@@ -1557,6 +1557,8 @@ model Routine {
   watch          Json?
   /// Last check's result (RoutineWatchStateSchema), written by the checker.
   watchState     Json?
+  /// One-shot follow-up state (FollowUpStateSchema); null for a normal routine.
+  followUp       Json?
   lastRunAt      DateTime?
   nextRunAt      DateTime?
   /// Runs in a row the model provider refused for the account; each one spaces out the schedule.
@@ -2093,6 +2095,13 @@ model NotificationPreference {
   finish   Boolean @default(true)
   help     Boolean @default(true)
   takeover Boolean @default(true)
+  /// Whether this person accepts follow-ups in this Space.
+  followUps Boolean @default(true)
+  /// Minutes after local midnight when follow-ups pause and resume; equal values mean no window.
+  quietHoursStart Int @default(1320)
+  quietHoursEnd   Int @default(420)
+  /// Follow-up runs one person may receive in a local day, across their Spaces.
+  followUpDailyCap Int @default(1)
 
   @@unique([spaceId, userId])
   @@map("notification_preferences")
