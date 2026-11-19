@@ -10,6 +10,7 @@ import type {
   ManagedConnectorProvider,
   MediaGenerationProvider,
   MemoryStore,
+  MessagingSurface,
   NotificationProvider,
   PaidServiceProvider,
   PaymentWalletProvider,
@@ -64,7 +65,11 @@ export interface ExecutorDeps {
   phoneCallCooldownMinutes?: number;
   phoneCallRingSeconds?: number;
   /** Messaging surface; absent means zero identity queries and no chat prompts. */
-  messaging?: { hasIdentity(botId: string): Promise<boolean> };
+  messaging?: {
+    hasIdentity(botId: string): Promise<boolean>;
+    /** The mounted surface itself, for receipts and status lines. */
+    surface?: Pick<MessagingSurface, "acknowledge" | "sendToThread">;
+  };
   listConnectedPluginSlugs?: (userId: string) => Promise<string[]>;
   /** Builtin web_search / web_fetch. Defaults to keyless HTTP when omitted. */
   web?: WebProvider;

@@ -86,6 +86,7 @@ function Host({ messages }: { messages: ThreadMessage[] }) {
       scrollRef={scrollRef}
       scrollRequest={null}
       onScrollRequestHandled={reply}
+      onAttachLinks={reply}
       followRequest={0}
       artifactTarget={artifactTarget}
       transcript={{

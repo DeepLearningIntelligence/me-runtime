@@ -269,6 +269,10 @@ export function blocksToAgentHistoryText(blocks: MessageBlock[]): string {
         }[block.status];
         return `[you called the user about: ${block.reason}; ${outcome}]${block.status === "answered" ? `\n${block.opening}` : ""}`;
       }
+      // Links the person dropped are part of their message, not decoration.
+      if (block.kind === "attached_links") {
+        return block.links.map((link) => `[attached link] ${link}`).join("\n");
+      }
       if ("text" in block && typeof block.text === "string") return block.text;
       return "";
     })

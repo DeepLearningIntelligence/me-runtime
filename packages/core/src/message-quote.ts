@@ -186,6 +186,8 @@ function replyBlockText(block: MessageBlock): string {
     case "image":
     case "file":
       return block.name || blocksToAgentHistoryText([block]);
+    case "attached_links":
+      return block.links.join(", ");
     case "delivery":
       return "";
   }

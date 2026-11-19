@@ -39,6 +39,7 @@ import {
   HISTORY_WINDOW_SIZE,
   shouldEnqueueCompaction,
 } from "./history-compaction.js";
+import { messagingInboundHandle } from "./messaging-inbound-nonce.js";
 import { connectorStepNames } from "./pi-runtime-tools.js";
 import {
   backOffRoutineAfterAccountError,
@@ -91,6 +92,7 @@ import {
 } from "./silent-reply.js";
 import { isStrategicInitiativeRun } from "./strategic-initiative.js";
 import { takeoverCheckpointOf } from "./takeover-resume.js";
+import { maybeEmitThinkingMusic, THINKING_HOLD_MUSIC_THRESHOLD_MS } from "./thinking-music.js";
 import {
   appendToolCompletionAudit,
   logLoopGuardStop,
@@ -155,6 +157,41 @@ export async function consumeRunEvents(
   // A quiet model call or a long tool streams no events, so Stop would otherwise go unseen
   // until the next event or heartbeat. The shared throttle keeps this at one read a second.
   let watching = true;
+  // Hold music rides the same thinking markers: past a long think the person gets
+  // typing dots and one status line, and never a second line for the same run.
+  // The provider only marks the start, so a timer is what reaches the threshold.
+  let thinkingSince: number | null = null;
+  let thinkingTimer: ReturnType<typeof setTimeout> | undefined;
+  let musicTarget: { threadId: string; handle: string } | null | undefined;
+  const clearThinkingTimer = () => {
+    if (thinkingTimer) clearTimeout(thinkingTimer);
+    thinkingTimer = undefined;
+  };
+  const noteLongThink = async () => {
+    if (thinkingSince === null || !deps.messaging?.surface) return;
+    if (musicTarget === undefined) musicTarget = await resolveThinkingMusicTarget(ctx);
+    if (!musicTarget) return;
+    await maybeEmitThinkingMusic(runId, Date.now() - thinkingSince, {
+      messaging: deps.messaging.surface,
+      target: musicTarget,
+      context: ctx.context,
+    });
+  };
+  const armThinkingTimer = () => {
+    clearThinkingTimer();
+    if (ctx.scripted || isBackgroundRunTrigger(run.trigger) || !deps.messaging?.surface) return;
+    thinkingTimer = setTimeout(() => {
+      thinkingTimer = undefined;
+      void noteLongThink().catch((error) => {
+        // A receipt is best effort; an unreadable identity must not stop the turn.
+        getLogger().error("thinking music lookup failed", {
+          runId,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }, THINKING_HOLD_MUSIC_THRESHOLD_MS + 1);
+    thinkingTimer.unref?.();
+  };
   const watch = setInterval(() => {
     void runLeaseLost(ctx, () => watching)
       .then((lost) => {
@@ -178,6 +215,15 @@ export async function consumeRunEvents(
       }
       if (event.type === "thinking") {
         await publishThinking(event.active);
+        if (event.active) {
+          if (thinkingSince === null) {
+            thinkingSince = Date.now();
+            armThinkingTimer();
+          }
+        } else {
+          thinkingSince = null;
+          clearThinkingTimer();
+        }
         continue;
       }
       if (
@@ -242,9 +288,31 @@ export async function consumeRunEvents(
   } finally {
     watching = false;
     clearInterval(watch);
+    clearThinkingTimer();
     // Run completion clears thinking too; never let this replace the turn's own outcome.
     await publishThinking(false).catch(() => {});
   }
+}
+
+/**
+ * The platform thread and inbound handle a run's receipts belong to. Only a
+ * messaging-triggered DM run has both; any other run gets null and stays quiet.
+ */
+async function resolveThinkingMusicTarget(
+  ctx: RunContext,
+): Promise<{ threadId: string; handle: string } | null> {
+  if (ctx.run.trigger !== "messaging" || !ctx.run.sourceMessageId) return null;
+  const identity = await ctx.deps.prisma.messagingIdentity.findUnique({
+    where: { botId: ctx.bot.id },
+    select: { provider: true, dmThreadId: true },
+  });
+  if (!identity?.dmThreadId) return null;
+  const source = await ctx.deps.prisma.message.findUnique({
+    where: { id: ctx.run.sourceMessageId },
+    select: { clientNonce: true },
+  });
+  const handle = messagingInboundHandle(identity.provider, source?.clientNonce);
+  return handle ? { threadId: identity.dmThreadId, handle } : null;
 }
 
 /**

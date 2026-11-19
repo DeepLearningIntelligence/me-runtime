@@ -3,10 +3,11 @@ import type { AgentSkillCatalogEntry } from "@rakazo/contracts";
 import type { ComposerMention, SLASH_ACTIONS, SlashActionId } from "@rakazo/core";
 import { mentionChipKey, truncateSlashDescription } from "@rakazo/core";
 import { Button } from "@rakazo/ui-web";
-import { ArrowUp, Box, Paperclip, Settings, Square, X } from "lucide-react";
+import { ArrowUp, Box, Link2, Paperclip, Settings, Square, X } from "lucide-react";
 import type { CSSProperties, RefObject } from "react";
 import type { useHoldToTalk } from "../../components/composer/HoldToTalk";
 import { HoldToTalkControls } from "../../components/composer/HoldToTalk";
+import { attachedLinkLabel } from "../../lib/attached-links";
 import type { PendingAttachment } from "./chat-shared";
 import { MentionOptionIcon, slashActionLabel } from "./composer-mentions";
 
@@ -43,6 +44,41 @@ export function PendingAttachmentChips({
             type="button"
             aria-label={t`Remove ${attachment.file.name}`}
             onClick={() => onRemove(attachment)}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <X size={13} strokeWidth={2} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The links dropped on the feed, waiting for the next message they attach to. */
+export function AttachedLinkChips({
+  links,
+  onRemove,
+}: {
+  links: string[];
+  onRemove: (link: string) => void;
+}) {
+  const { t } = useLingui();
+  if (!links.length) return null;
+  return (
+    <div className="mb-3 flex flex-wrap gap-2" data-testid="attached-link-chips">
+      {links.map((link) => (
+        <div
+          key={link}
+          className="flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1.5 text-body-sm text-foreground/75"
+        >
+          <Link2 size={14} strokeWidth={1.8} />
+          <span className="max-w-[220px] truncate" dir="auto" title={link}>
+            {attachedLinkLabel(link)}
+          </span>
+          <button
+            type="button"
+            aria-label={t`Remove ${attachedLinkLabel(link)}`}
+            onClick={() => onRemove(link)}
             className="text-muted-foreground hover:text-foreground"
           >
             <X size={13} strokeWidth={2} />

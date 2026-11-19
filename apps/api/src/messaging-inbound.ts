@@ -26,6 +26,7 @@ import {
   createThreadMessage,
   crossSpaceCommunicationAllowed,
   normalizeMessagingLinkCode,
+  recordInboundReceipt,
   redeemMessagingLinkCode,
   SpaceDeletionInProgressError,
   THREAD_LOCK_TRANSACTION_OPTIONS,
@@ -188,6 +189,21 @@ async function handleDirectEvent(
       deps.signupPolicy,
     );
   }
+
+  // The receipt is the queryable record of what was sent, location included. A
+  // failed write must not fail delivery; the platform's redelivery is deduped.
+  await recordInboundReceipt(deps.prisma, {
+    provider: event.provider,
+    handle: event.handle,
+    spaceId: ids.spaceId,
+    botId: ids.botId,
+    userId: ids.userId,
+    threadId: ids.threadId,
+    medium: event.medium ?? "text",
+    ...(event.location ? { location: event.location } : {}),
+  }).catch((error) => {
+    getLogger().error("messaging inbound receipt write", error);
+  });
 
   const stored = await storeInboundMedia(deps, ids, event);
 

@@ -20,6 +20,7 @@ import { getLogger } from "@rakazo/logging";
 import type { Adapter, Message, PostableMarkdown, Root, Thread } from "chat";
 import { Chat, isLinkNode, paragraph, parseMarkdown, root, text, toPlainText, walkAst } from "chat";
 import { getLarkTextParts } from "./lark/text-parts.js";
+import { inboundLocation } from "./messaging-platforms.js";
 
 /**
  * Per-webhook drain of Chat SDK waitUntil work, plus the Chat dedupe keys of
@@ -499,6 +500,7 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
     const attachments = inboundAttachments(message);
     const departures = isDirect ? undefined : platform.departures?.(message.raw);
     const rosterAt = isDirect ? undefined : (platform.rosterAt?.(message.raw) ?? undefined);
+    const location = inboundLocation(platform.provider, message.raw);
     const base: MessagingInboundMessage = {
       type: "message",
       provider: platform.provider,
@@ -526,6 +528,7 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
         .filter(Boolean)
         .join("\n"),
       mediaUrl: message.attachments.find((attachment) => attachment.url)?.url ?? null,
+      ...(location ? { location } : {}),
       ...(attachments.length ? { attachments } : {}),
       ...(!isDirect && message.isMention ? { mentionsBot: true } : {}),
       ...(departures ? { departures } : {}),

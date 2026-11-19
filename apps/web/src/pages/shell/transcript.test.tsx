@@ -92,6 +92,7 @@ function baseProps(messages: readonly ThreadMessage[]): ComponentProps<typeof Tr
     scrollRef,
     scrollRequest: null,
     onScrollRequestHandled: vi.fn(),
+    onAttachLinks: vi.fn(),
     followRequest: 0,
     callHoldsSpeaker: false,
     artifactTarget: { botId: "bot" },

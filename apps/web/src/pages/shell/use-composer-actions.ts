@@ -90,14 +90,28 @@ export function useComposerActions({
   const { t } = useLingui();
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   usePendingAttachmentPreviewCleanup(pendingAttachments);
+  // Links dropped on the feed ride the next message this chat sends, then clear.
+  const [pendingLinks, setPendingLinks] = useState<string[]>([]);
+  const attachLinks = useCallback((links: readonly string[]) => {
+    const clean = links.map((link) => link.trim()).filter(Boolean);
+    if (!clean.length) return;
+    setPendingLinks((current) => [...new Set([...current, ...clean])].slice(0, 20));
+  }, []);
+  const removeLink = useCallback((link: string) => {
+    setPendingLinks((current) => current.filter((item) => item !== link));
+  }, []);
+  const clearLinks = useCallback(() => setPendingLinks([]), []);
   const [replyTarget, setReplyTarget] = useState<ThreadMessage | null>(null);
   const [replyQuote, setReplyQuote] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [sentCount, setSentCount] = useState(0);
   useEffect(() => {
-    setComposerUnsavedWork({ sending, attachments: pendingAttachments.length > 0 });
+    setComposerUnsavedWork({
+      sending,
+      attachments: pendingAttachments.length > 0 || pendingLinks.length > 0,
+    });
     return () => setComposerUnsavedWork({ sending: false, attachments: false });
-  }, [sending, pendingAttachments.length]);
+  }, [sending, pendingAttachments.length, pendingLinks.length]);
   const sendingRef = useRef(false);
   const [sendFailure, setSendFailure] = useState<{
     message: string;
@@ -206,9 +220,10 @@ export function useComposerActions({
   // only the open chat's files are shown and sent (activePendingAttachments).
   useEffect(() => {
     clearReply();
+    clearLinks();
     setAttachmentNotice(null);
     setSendError(null);
-  }, [activeId, clearReply, groupId, inGroup]);
+  }, [activeId, clearReply, clearLinks, groupId, inGroup]);
 
   const answerMessage = useCallback(
     async (
@@ -347,10 +362,11 @@ export function useComposerActions({
       const { target: replyAtSend, quote: replyQuoteAtSend } = armedReply.current;
       const originThreadKey = initialGroupTarget ?? initialBotTarget;
       const attachments = attachmentsForThread(pendingAttachments, originThreadKey);
+      const linksAtSend = pendingLinks;
       const plan = resolveComposerSendPlan({
         text: draft,
         mentions,
-        hasAttachments: attachments.length > 0,
+        hasAttachments: attachments.length > 0 || linksAtSend.length > 0,
       });
       if (plan.isNoOp) return false;
       const reroutedToGroup = Boolean(
@@ -466,12 +482,15 @@ export function useComposerActions({
           replyQuote:
             reroutedToGroup || replyToMessageId ? undefined : (replyQuoteAtSend ?? undefined),
           fromPage: !reroutedToGroup && replyToMessageId ? true : undefined,
+          attachedLinks: linksAtSend.length ? linksAtSend : undefined,
         } as const;
         // The routines run in the same server operation as the message: both or neither.
         const sent = plan.shouldRunRoutines
           ? (await rpc.threads.sendWithRoutines({ ...payload, routineIds: plan.routineIds })).send
           : await rpc.threads.send(payload);
         accepted = true;
+        // The message carries the links that were waiting; one dropped mid-flight stays queued.
+        setPendingLinks((current) => current.filter((link) => !linksAtSend.includes(link)));
         if (sent && botTarget && activeBotId.current === botTarget) {
           updateSnapshot((current) =>
             applyThreadSendReceipt(
@@ -537,6 +556,7 @@ export function useComposerActions({
       flushPendingBrowserNotifications,
       navigate,
       pendingAttachments,
+      pendingLinks,
       sending,
       t,
     ],
@@ -609,6 +629,9 @@ export function useComposerActions({
 
   return {
     activePendingAttachments,
+    pendingLinks,
+    attachLinks,
+    removeLink,
     attachmentNotice,
     fileInputRef,
     onAttachmentPick,

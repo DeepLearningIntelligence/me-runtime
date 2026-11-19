@@ -7,6 +7,7 @@ import {
   redactSecrets,
   resolveBotAddress,
 } from "@rakazo/core";
+import { latestLocationReceipt } from "@rakazo/db";
 import {
   connectAgent,
   messageConnectedAgent,
@@ -16,8 +17,12 @@ import { startBackgroundHelper } from "./background-helpers.js";
 import { messageBot } from "./bot-messages.js";
 import { endCallFromTool, requestUserCall } from "./call-request.js";
 import { normalizeWorkspacePath, resolveBotWorkspacePath } from "./computer-support.js";
+import { dispatchGpsTool } from "./gps-tools.js";
 import { handoffToGroupBot } from "./group-handoff.js";
+import type { MemeDispatchDeps } from "./meme-tools.js";
+import { dispatchMemeTool } from "./meme-tools.js";
 import type { RunContext } from "./run-context.js";
+import { publishMessage } from "./run-messages.js";
 import {
   canPostLongTaskHeadsUp,
   canPublishDurableProgress,
@@ -196,8 +201,62 @@ function deliveredMessage(
   return { message: `${text.trim()}${list}` };
 }
 
+/**
+ * The meme tools' transport: the linked messaging chat when this bot has one,
+ * otherwise this run's own thread, so a meme is never silently dropped.
+ */
+function memeDeps(ctx: RunContext, call: ToolCall): MemeDispatchDeps {
+  return {
+    spaceId: ctx.run.spaceId,
+    emitter: {
+      async sendMeme({ images, caption }) {
+        const body = [caption ?? "", ...images].filter(Boolean).join("\n");
+        const identity = await ctx.deps.prisma.messagingIdentity.findUnique({
+          where: { botId: ctx.bot.id },
+          select: { dmThreadId: true },
+        });
+        const surface = ctx.deps.messaging?.surface;
+        if (identity?.dmThreadId && surface) {
+          const sent = await surface.sendToThread(
+            { threadId: identity.dmThreadId, body, idempotencyKey: call.effectKey },
+            ctx.context,
+          );
+          return { receiptId: sent.handle, messageId: sent.handle, via: "messaging" as const };
+        }
+        const published = await publishMessage(
+          ctx.deps,
+          ctx.run,
+          "bot",
+          [{ kind: "text", text: body }],
+          true,
+          `meme:${call.effectKey}`,
+        );
+        const messageId = published?.id;
+        if (!messageId) throw new Error("the chat message could not be saved");
+        return { receiptId: call.effectKey, messageId, via: "chat" as const };
+      },
+    },
+  };
+}
+
 /** Messages to the user, other bots and connected agents, and calls. */
 export const messagingTools: ToolHandlers = {
+  async me_send_meme(ctx, call) {
+    return call.finish(await dispatchMemeTool("me_send_meme", call.args, memeDeps(ctx, call)));
+  },
+  async me_meme_from_text(ctx, call) {
+    return call.finish(await dispatchMemeTool("me_meme_from_text", call.args, memeDeps(ctx, call)));
+  },
+  async me_gps(ctx, call) {
+    return call.finish(
+      await dispatchGpsTool(call.args, {
+        spaceId: ctx.run.spaceId,
+        receipts: {
+          latestLocation: (input) => latestLocationReceipt(ctx.deps.prisma, input.spaceId),
+        },
+      }),
+    );
+  },
   async call_user(ctx, call) {
     const { deps, run, thread } = ctx;
     const { args } = call;

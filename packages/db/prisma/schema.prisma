@@ -2335,6 +2335,29 @@ model MessagingOutbound {
   @@map("messaging_outbound")
 }
 
+/// One inbound messaging message's receipt: what the person sent and, when the
+/// platform reported it, the location it carried. Platform receipts stay best
+/// effort; this row is the queryable record the GPS tool reads.
+model MessagingReceipt {
+  id         String   @id @default(cuid())
+  provider   String
+  /// The provider message id: one receipt per inbound message, replays included.
+  handle     String
+  spaceId    String
+  botId      String
+  userId     String
+  threadId   String
+  medium     String
+  latitude   Float?
+  longitude  Float?
+  label      String?
+  capturedAt DateTime @default(now())
+
+  @@unique([provider, handle])
+  @@index([spaceId, capturedAt])
+  @@map("messaging_receipts")
+}
+
 model AgentConnection {
   requestVersion Int      @default(1)
   id             String   @id @default(cuid())
