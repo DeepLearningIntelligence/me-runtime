@@ -1645,8 +1645,7 @@ describe("directory accounts", () => {
   it("signs a verified address into an account the directory adopted", async () => {
     setup({ directoryProvisioning: true }, false);
     const userId = provisionedAccount();
-    // Not claimable: the directory did not make this account, so only the verified
-    // address can sign into it.
+    // Admitted by the verified address alone: no directory subject is needed.
     directorySubjects.set(userId, null);
     const response = await signIn();
     expect(response.headers.get("location")).toBe(`${origin}/app`);
