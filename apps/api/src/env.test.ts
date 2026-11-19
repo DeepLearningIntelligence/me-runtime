@@ -54,6 +54,13 @@ describe("loadEnv", () => {
       expect(loadEnv({ ...base, TICKET_BOARD_ENABLED: value }).ticketBoardEnabled).toBe(false);
     expect(loadEnv({ ...base, TICKET_BOARD_ENABLED: "true" }).ticketBoardEnabled).toBe(true);
   });
+  it("offers no Composio app unless ME_CONNECTOR_ALLOWLIST names it", () => {
+    expect(loadEnv(base).connectorAllowlist).toEqual([]);
+    expect(loadEnv({ ...base, ME_CONNECTOR_ALLOWLIST: " " }).connectorAllowlist).toEqual([]);
+    expect(
+      loadEnv({ ...base, ME_CONNECTOR_ALLOWLIST: "slack, Notion,slack" }).connectorAllowlist,
+    ).toEqual(["slack", "notion"]);
+  });
   it("loads operator menu links and refuses to start on a bad value", () => {
     expect(loadEnv(base).navLinks).toEqual([]);
     expect(

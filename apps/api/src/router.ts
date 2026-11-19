@@ -152,6 +152,8 @@ export interface RouterDeps {
     privacyPolicyUrl?: string;
     screenProxySecret: string;
     sandboxProvider: string;
+    /** ME_CONNECTOR_ALLOWLIST: Composio app slugs this deployment offers; empty offers none. */
+    connectorAllowlist?: string[];
     /** Person-to-person invites (ME-RUN-001 D-RUN-7). */
     inviteAllocation: number;
     inviteTtlDays: number;

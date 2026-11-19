@@ -1,5 +1,5 @@
 import type { ConnectorCatalogItem } from "@rakazo/adapter-kit";
-import { planLiveConnectionSync } from "@rakazo/adapters";
+import { connectorAllowlistAllows, planLiveConnectionSync } from "@rakazo/adapters";
 import type { Actor } from "@rakazo/contracts";
 import type { Prisma, PrismaClient } from "@rakazo/db";
 import { IsolationError, recordSecurityEvent } from "@rakazo/db";
@@ -128,7 +128,13 @@ export function connectionsRoutes(ctx: RouterContext) {
                   );
                 });
               }
-              return items;
+              return items.filter((item) =>
+                connectorAllowlistAllows(
+                  deps.env.connectorAllowlist ?? [],
+                  item.connectorId,
+                  item.slug,
+                ),
+              );
             } catch {
               return [];
             }
@@ -140,15 +146,23 @@ export function connectionsRoutes(ctx: RouterContext) {
         const rows = await deps.prisma.connection.findMany({
           where: { spaceId: context.actor.spaceId, userId: context.actor.userId },
         });
-        return rows.map((row) => ({
-          id: row.id,
-          connectorId: row.connectorId,
-          provider: row.provider,
-          displayName: row.displayName,
-          status: row.status as "pending" | "connected" | "revoked" | "error",
-          capabilities: [],
-          createdAt: row.createdAt.toISOString(),
-        }));
+        return rows
+          .filter((row) =>
+            connectorAllowlistAllows(
+              deps.env.connectorAllowlist ?? [],
+              row.connectorId,
+              row.provider,
+            ),
+          )
+          .map((row) => ({
+            id: row.id,
+            connectorId: row.connectorId,
+            provider: row.provider,
+            displayName: row.displayName,
+            status: row.status as "pending" | "connected" | "revoked" | "error",
+            capabilities: [],
+            createdAt: row.createdAt.toISOString(),
+          }));
       }),
       begin: authed.connections.begin.handler(({ context, input }) =>
         beginConnection(deps, context, input),
@@ -183,7 +197,9 @@ export function connectionsRoutes(ctx: RouterContext) {
         revokeConnection(deps, context, input),
       ),
       tools: authed.connections.tools.handler(async ({ context, input }) => {
-        const connector = deps.connectors.managed(input.connectorId);
+        const connector = deps.connectors
+          .managedProviders()
+          .find((provider) => provider.describe().id === input.connectorId);
         if (!connector) return [];
         const row = await deps.prisma.connection.findFirst({
           where: {

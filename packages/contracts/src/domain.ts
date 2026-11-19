@@ -1488,6 +1488,11 @@ export const MeSchema = z.object({
   phoneCallsEnabled: z.boolean().default(false),
   /** Operator-configured menu links. Absent from older servers. */
   navLinks: z.array(NavLinkSchema).default([]),
+  /**
+   * Composio app slugs this deployment offers (ME_CONNECTOR_ALLOWLIST). Empty or absent
+   * means none: a client never offers a card the server would refuse.
+   */
+  connectorAllowlist: z.array(z.string()).optional(),
   userId: Id,
   email: z.string().email(),
   name: z.string(),
