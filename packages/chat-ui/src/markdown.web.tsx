@@ -715,9 +715,12 @@ export function PageIcon({ className }: { className?: string }) {
 function MarkdownDiv({
   node,
   children,
+  className,
 }: React.ComponentPropsWithoutRef<"div"> & { node?: MarkdownHast }) {
   const variant = node?.properties?.dataCallout;
-  if (typeof variant !== "string") return <div>{children}</div>;
+  // An unclosed directive reaches this path through its own class; dropping it left the
+  // text styled as ordinary prose while it was still arriving.
+  if (typeof variant !== "string") return <div className={className}>{children}</div>;
   return (
     <Callout variant={calloutVariant(variant)} title={hastString(node?.properties?.dataTitle)}>
       {children}
