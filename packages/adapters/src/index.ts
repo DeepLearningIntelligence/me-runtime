@@ -3,6 +3,7 @@ export * from "./agent-connections.js";
 export * from "./agent-environment.js";
 export * from "./agent-import-settings.js";
 export * from "./ai-consent.js";
+export * from "./ai-guardrail.js";
 export type { ApnsVoipConfig } from "./apns-voip.js";
 export {
   apnsVoipConfig,
@@ -84,6 +85,7 @@ export * from "./e2b-sandbox.js";
 export * from "./elevenlabs-voice.js";
 export * from "./email-emulator.js";
 export * from "./email-provider.js";
+export * from "./evidence-gate.js";
 export * from "./executor.js";
 export * from "./expo-push.js";
 export * from "./fake-browser.js";
@@ -178,6 +180,7 @@ export * from "./plan-limits.js";
 export * from "./plugin-connectors.js";
 export * from "./plugin-marketplace.js";
 export * from "./product-analytics.js";
+export * from "./publication-evidence.js";
 export * from "./purchase-poll.js";
 export * from "./purchase-service.js";
 export * from "./push-token-store.js";

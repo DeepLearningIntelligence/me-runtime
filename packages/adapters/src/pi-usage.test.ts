@@ -1143,3 +1143,29 @@ describe("Pi usage accounting", () => {
     );
   });
 });
+
+it("refuses a model call by name when the Space's canary guard returns a refusal", async () => {
+  const fetch = vi.fn(async () =>
+    new Response(sse(), { headers: { "content-type": "text/event-stream" } }),
+  );
+  const refusal =
+    'Canary call "model_call" refused: this Space\'s AI canary budget is spent for today (ai.canary.exceeded).';
+  const canaryGuard = vi.fn(async () => refusal);
+  const stream = await observedPiStream(
+    builtinModels(),
+    model,
+    { messages: [] },
+    { apiKey: "fake-fixture-key", fetch },
+    vi.fn(),
+    undefined,
+    { operationKind: "answer", canaryGuard },
+  );
+  for await (const _event of stream) {
+    /* the refusal terminates the stream */
+  }
+  const result = await stream.result();
+  expect(result.stopReason).toBe("error");
+  expect(result.errorMessage).toBe(refusal);
+  expect(canaryGuard).toHaveBeenCalledWith("model_call");
+  expect(fetch).not.toHaveBeenCalled();
+});

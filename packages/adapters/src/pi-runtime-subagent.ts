@@ -211,6 +211,7 @@ export async function executeSubagent(
               agentId,
               userId: host.context?.userId,
               runId: host.request.runId,
+              canaryGuard: host.request.canaryGuard,
             },
             {
               prepareContext: contextPolicy.prepareContext,

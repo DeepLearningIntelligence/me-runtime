@@ -9,6 +9,12 @@ import { redactConnectorPayload, sanitizeConnectorError } from "./connector-safe
 import { mcpAppViewArguments, mcpAppViewResult } from "./mcp-app.js";
 import { addMcpServerFromTool } from "./mcp-server-tool.js";
 import { serviceCallFromTool, serviceSearchFromTool } from "./paid-service-tools.js";
+import {
+  buildPublicationCard,
+  collectPublicationEvidence,
+  PublicationEvidenceError,
+  publishPublicationCard,
+} from "./publication-evidence.js";
 import type { RunContext } from "./run-context.js";
 import { runScopedToolExecutionId } from "./run-effects.js";
 import { publishMessage } from "./run-messages.js";
@@ -75,9 +81,69 @@ export async function connectorTool(ctx: RunContext, call: ToolCall) {
         }
       }
     }
+    // After the public write completes, post the publication card built from DB evidence.
+    // The card is extra: gathering it failing leaves the call's result as it is.
+    if (!resultFailed(result) && isPublicationAction(name, call)) await emitPublicationCard(ctx, call);
     return call.finish(result);
   }
   return call.finish({ error: `unknown tool ${name}` });
+}
+
+/** The GFIN public write a publication card follows. */
+function isPublicationAction(name: string, call: ToolCall): boolean {
+  return name === "save_opportunity" || call.connectorCall.route?.toolName === "save_opportunity";
+}
+
+function resultFailed(result: unknown): boolean {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    typeof (result as { error?: unknown }).error === "string"
+  );
+}
+
+/**
+ * Gathers the card's evidence read-only through the connection that ran the action, then
+ * posts the card on the run. A named evidence failure skips the card (fail closed) rather
+ * than publishing an answer it could not read.
+ */
+async function emitPublicationCard(ctx: RunContext, call: ToolCall): Promise<void> {
+  const { deps, run, context } = ctx;
+  const connector = deps.connector;
+  if (!connector) return;
+  const callTool = async (toolName: string, args: Record<string, unknown>): Promise<unknown> => {
+    let result: unknown = { error: `unknown tool ${toolName}` };
+    for await (const event of connector.execute(
+      {
+        ...call.connectorCall,
+        tool: toolName,
+        args,
+        executionId: `${call.effectKey}:publication-evidence`,
+        withApp: false,
+      },
+      context,
+    )) {
+      if (event.type === "result") result = event.data;
+      if (event.type === "error")
+        throw new PublicationEvidenceError("gfin_evidence_unavailable", event.message);
+    }
+    return result;
+  };
+  try {
+    const evidence = await collectPublicationEvidence(run.spaceId, call.args, {
+      prisma: deps.prisma,
+      callTool,
+    });
+    await publishPublicationCard(deps, run, buildPublicationCard(evidence));
+  } catch (error) {
+    if (error instanceof PublicationEvidenceError) {
+      getLogger().warn("publication card skipped", { "gfin.reason": error.key });
+      return;
+    }
+    getLogger().warn("publication card failed", {
+      error: error instanceof Error ? error.message : "unknown",
+    });
+  }
 }
 
 /**

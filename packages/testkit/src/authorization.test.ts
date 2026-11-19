@@ -506,6 +506,8 @@ describeWithDatabase("API authorization and resource isolation", () => {
       ["accessGrants/revoke"],
       ["preferences/update"],
       ["preferences/adoptTimezone"],
+      ["preferences/followUps/get"],
+      ["preferences/followUps/update", { followUps: true }],
       ["bootstrap"],
       ["security/events"],
       ["audit/events"],

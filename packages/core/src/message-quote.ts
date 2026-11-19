@@ -187,6 +187,7 @@ function replyBlockText(block: MessageBlock): string {
     case "file":
       return block.name || blocksToAgentHistoryText([block]);
     case "delivery":
+    case "visual_pack":
       return "";
   }
 }

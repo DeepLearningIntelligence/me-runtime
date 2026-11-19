@@ -5,6 +5,7 @@ import { Id, ThinkingLevelSchema } from "./ids.js";
 import { McpTransportSchema } from "./mcp.js";
 import { McpAppCspSchema } from "./mcp-app.js";
 import { PAGE_TITLE_MAX_LENGTH } from "./pages.js";
+import { PublicationCardBlock } from "./publication-card.js";
 
 export const ProductEventType = z.enum([
   "thread.message.created",
@@ -43,6 +44,7 @@ export const ProductEventType = z.enum([
   "effect.recorded",
   "agent.tool.called",
   "agent.tool.completed",
+  "ai.canary.exceeded",
   "effect.reconciled",
   "usage.recorded",
   "bot.spawned",
@@ -363,6 +365,7 @@ export const MessageBlock = z.discriminatedUnion("kind", [
     csp: McpAppCspSchema.optional(),
     prefersBorder: z.boolean().optional(),
   }),
+  PublicationCardBlock,
   z.object({
     /** A page the bot saved. Title and version are as sent; read the page for its latest. */
     kind: z.literal("page"),
