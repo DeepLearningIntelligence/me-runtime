@@ -108,6 +108,10 @@ function createFakeSurface(sendError?: Error) {
     platforms: () => [
       { provider: "sendblue", capabilities: { direct: true, groups: true, receipt: "typing" } },
       {
+        provider: "whatsapp",
+        capabilities: { direct: true, groups: false, receipt: ["typing", "reaction"] },
+      },
+      {
         provider: "telegram",
         capabilities: { direct: true, groups: false, receipt: null, files: true },
       },
@@ -136,6 +140,7 @@ function createDeps(overrides: {
   connectionStatus?: string | null;
   blockedBot?: string;
   artifacts?: Array<Record<string, unknown>>;
+  sourceMessage?: { runId: string } | null;
 }) {
   const rows = [...(overrides.outboundRows ?? [])] as Array<Record<string, unknown>>;
   const { messaging, sendToThread, openDirectThread } = createFakeSurface(overrides.sendError);
@@ -159,7 +164,10 @@ function createDeps(overrides: {
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
     message: {
-      findUnique: vi.fn(async (): Promise<{ thread: { userId: string } } | null> => null),
+      findUnique: vi.fn(
+        async (args: { select?: { runId?: boolean } }): Promise<Record<string, unknown> | null> =>
+          args.select?.runId ? (overrides.sourceMessage ?? null) : null,
+      ),
       findMany: vi.fn(
         async () =>
           overrides.messages ?? [
@@ -327,6 +335,58 @@ describe("deliverMessagingOutbound", () => {
       where: { id: "run-1", trigger: "messaging" },
       data: { messagingMirroredAt: expect.any(Date) },
     });
+  });
+
+  it("settles the message it answers once the reply is out", async () => {
+    const deps = createDeps({
+      identity: { provider: "whatsapp", dmThreadId: "whatsapp:15551234567" },
+      run: {
+        ...messagingRun,
+        sourceMessage: {
+          blocks: [{ kind: "text", text: "hi" }],
+          clientNonce: "messaging:whatsapp:wamid-1",
+        },
+      },
+      sourceMessage: { runId: "run-1" },
+    });
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    expect(deps.messaging.acknowledge).toHaveBeenCalledWith(
+      "whatsapp:15551234567",
+      "wamid-1",
+      { kind: "reaction", emoji: "✅" },
+      expect.anything(),
+    );
+  });
+
+  it("settles a reply that asks a question with thinking", async () => {
+    const deps = createDeps({
+      identity: { provider: "whatsapp", dmThreadId: "whatsapp:15551234567" },
+      messages: [{ id: "m-1", blocks: [{ kind: "text", text: "Want the list?" }] }],
+      run: {
+        ...messagingRun,
+        sourceMessage: {
+          blocks: [{ kind: "text", text: "hi" }],
+          clientNonce: "messaging:whatsapp:wamid-1",
+        },
+      },
+      sourceMessage: { runId: "run-1" },
+    });
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    expect(deps.messaging.acknowledge).toHaveBeenCalledWith(
+      "whatsapp:15551234567",
+      "wamid-1",
+      { kind: "reaction", emoji: "🤔" },
+      expect.anything(),
+    );
+  });
+
+  it("does not settle a reply the worker cannot tie to an inbound message", async () => {
+    const deps = createDeps({});
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    expect(deps.messaging.acknowledge).not.toHaveBeenCalled();
   });
 
   it("sends a page the bot named as its title, never as an app-only page link", async () => {

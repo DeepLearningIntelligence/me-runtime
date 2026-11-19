@@ -216,6 +216,7 @@ describe("ChatSdkMessagingSurface inbound", () => {
         provider: "mock",
         handle: "m-1",
         threadId: "mock:Duser:1",
+        medium: "text",
         isDirect: true,
         from: "U123",
         fromLabel: "Test User",
@@ -900,36 +901,35 @@ describe("ChatSdkMessagingSurface thread history", () => {
 });
 
 describe("ChatSdkMessagingSurface acknowledge", () => {
-  it.each(["mock", "mock-work"])("reacts with eyes on provider %s", async (provider) => {
+  it.each(["mock", "mock-work"])("reacts on provider %s", async (provider) => {
     const { surface, adapter } = createSurface({
       provider,
       adapterName: "mock",
       capabilities: { direct: true, groups: true, receipt: "reaction" },
     });
-    await surface.acknowledge(`${provider}:Duser:1`, "1700000000.000100", context);
+    await surface.acknowledge(
+      `${provider}:Duser:1`,
+      "1700000000.000100",
+      {
+        kind: "reaction",
+        emoji: "eyes",
+      },
+      context,
+    );
     expect(adapter.addReaction).toHaveBeenCalledWith("mock:Duser:1", "1700000000.000100", "eyes");
     expect(adapter.startTyping).not.toHaveBeenCalled();
   });
 
-  it("starts typing on typing platforms", async () => {
+  it("starts typing when the caller asks for it", async () => {
     const { surface, adapter } = createSurface();
-    await surface.acknowledge("mock:Duser:1", "m-1", context);
+    await surface.acknowledge("mock:Duser:1", "m-1", { kind: "typing" }, context);
     expect(adapter.startTyping).toHaveBeenCalledWith("mock:Duser:1");
-    expect(adapter.addReaction).not.toHaveBeenCalled();
-  });
-
-  it("no-ops when the platform has no receipt", async () => {
-    const { surface, adapter } = createSurface({
-      capabilities: { direct: true, groups: true, receipt: null },
-    });
-    await surface.acknowledge("mock:Duser:1", "m-1", context);
-    expect(adapter.startTyping).not.toHaveBeenCalled();
     expect(adapter.addReaction).not.toHaveBeenCalled();
   });
 
   it("no-ops for a thread on an unknown provider", async () => {
     const { surface, adapter } = createSurface();
-    await surface.acknowledge("nope:Duser:1", "m-1", context);
+    await surface.acknowledge("nope:Duser:1", "m-1", { kind: "typing" }, context);
     expect(adapter.startTyping).not.toHaveBeenCalled();
     expect(adapter.addReaction).not.toHaveBeenCalled();
   });

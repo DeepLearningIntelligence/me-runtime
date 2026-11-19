@@ -6,6 +6,7 @@ import type {
   TeamChatSendResult,
 } from "@rakazo/adapter-kit";
 import { runContinueJob } from "@rakazo/adapter-kit";
+import type { MessagingReceipts } from "@rakazo/adapters";
 import type { MessageBlock } from "@rakazo/contracts";
 import { ATTACHMENT_MAX_COUNT } from "@rakazo/contracts";
 import {
@@ -20,7 +21,6 @@ import { clearEndedRunState, teamChatRunClientNonce } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 import type { InboundAttachmentStore } from "./inbound-attachments.js";
 import { storeInboundAttachments } from "./inbound-attachments.js";
-import type { MessagingReceipts } from "./messaging-receipts.js";
 import { TeamChatAmbient } from "./team-chat-ambient.js";
 import { TeamChatDelivery } from "./team-chat-delivery.js";
 import type { TeamChatEngagementJudge } from "./team-chat-judge.js";
@@ -290,7 +290,7 @@ export class TeamChatBridge {
     }
     if (message.kind !== "ambient") {
       const externalMessageId = externalMessage.id;
-      this.deps.acknowledge?.(message.conversationId, message.eventId, async () => {
+      this.deps.acknowledge?.(message.conversationId, message.eventId, "text", async () => {
         const row = await this.deps.prisma.externalMessage.findUnique({
           where: { id: externalMessageId },
           select: { deliveredAt: true, status: true },

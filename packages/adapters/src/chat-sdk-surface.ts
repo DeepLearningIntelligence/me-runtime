@@ -7,10 +7,11 @@ import type {
   MessagingInboundAttachment,
   MessagingInboundEvent,
   MessagingInboundMessage,
+  MessagingMedium,
   MessagingOutboundAttachment,
   MessagingOutboundStatus,
   MessagingPlatformDescriptor,
-  MessagingReceipt,
+  MessagingReceiptAction,
   MessagingSendRequest,
   MessagingSendResult,
   MessagingSurface,
@@ -124,6 +125,8 @@ export interface MessagingPlatform {
   normalizeThreadId?: (threadId: string, raw: unknown) => string;
   /** User-facing transport carried by the raw message when it differs from the provider. */
   transport?: (raw: unknown) => string | null;
+  /** What the person sent, when the provider names it (voice note, sticker, location). */
+  medium?: (raw: unknown) => MessagingMedium;
   /**
    * Optional team-room enrichment (workspace id, mention/ambient kind, bot
    * sender, reply thread) derived from the raw platform payload.
@@ -316,20 +319,24 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
     }
   }
 
-  async acknowledge(threadId: string, handle: string, context: AdapterContext): Promise<void> {
+  async acknowledge(
+    threadId: string,
+    handle: string,
+    action: MessagingReceiptAction,
+    context: AdapterContext,
+  ): Promise<void> {
     const mounted = this.byProvider.get(providerOfThreadId(threadId));
-    const receipt = mounted?.platform.capabilities.receipt;
-    if (!mounted || !receipt) return;
+    if (!mounted) return;
     await this.ensureInitialized();
-    const { platform } = mounted;
+    const { adapter } = mounted.platform;
     const adapterThreadId = toAdapterThreadId(mounted, threadId);
-    const sends: Record<MessagingReceipt, () => Promise<void>> = {
-      typing: () => platform.adapter.startTyping(adapterThreadId),
-      reaction: () => platform.adapter.addReaction(adapterThreadId, handle, "eyes"),
-    };
+    const send =
+      action.kind === "typing"
+        ? () => adapter.startTyping(adapterThreadId)
+        : () => adapter.addReaction(adapterThreadId, handle, action.emoji);
     // The Chat SDK adapter API takes no abort signal, so the underlying
     // request cannot be cancelled — but the caller's wait is still bounded.
-    await raceWithSignal(sends[receipt](), context.signal);
+    await raceWithSignal(send(), context.signal);
   }
 
   async fetchThreadHistory(
@@ -501,6 +508,7 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
         mounted,
         platform.normalizeThreadId?.(threadId, message.raw) ?? threadId,
       ),
+      medium: platform.medium?.(message.raw) ?? (message.attachments.length > 0 ? "other" : "text"),
       isDirect,
       from: message.author.userId,
       fromLabel: fromLabel === message.author.userId ? null : fromLabel,

@@ -132,7 +132,12 @@ describe("Slack receipt", () => {
   it("reacts with eyes on the mention", async () => {
     const { surface, event } = await receiveChannelMention();
     try {
-      await surface.acknowledge(event.threadId, event.handle, context);
+      await surface.acknowledge(
+        event.threadId,
+        event.handle,
+        { kind: "reaction", emoji: "eyes" },
+        context,
+      );
 
       expect(event.threadId).toBe("slack:CTEST:1700000000.000001");
       expect(reactionRequests().map((request) => request.params)).toEqual([
@@ -148,7 +153,12 @@ describe("Slack receipt", () => {
     slack.reactionResult = { ok: false, error: "already_reacted" };
     try {
       await expect(
-        surface.acknowledge(event.threadId, event.handle, context),
+        surface.acknowledge(
+          event.threadId,
+          event.handle,
+          { kind: "reaction", emoji: "eyes" },
+          context,
+        ),
       ).resolves.toBeUndefined();
       expect(reactionRequests()).toHaveLength(1);
     } finally {
@@ -160,9 +170,14 @@ describe("Slack receipt", () => {
     const { surface, event } = await receiveChannelMention();
     slack.reactionResult = { ok: false, error: "missing_scope" };
     try {
-      await expect(surface.acknowledge(event.threadId, event.handle, context)).rejects.toThrow(
-        "An API error occurred: missing_scope",
-      );
+      await expect(
+        surface.acknowledge(
+          event.threadId,
+          event.handle,
+          { kind: "reaction", emoji: "eyes" },
+          context,
+        ),
+      ).rejects.toThrow("An API error occurred: missing_scope");
     } finally {
       await surface.shutdown();
     }

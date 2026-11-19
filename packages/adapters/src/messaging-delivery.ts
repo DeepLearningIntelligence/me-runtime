@@ -22,7 +22,9 @@ import {
 } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 import { MessagingSendError } from "./chat-sdk-surface.js";
+import { messagingInboundHandle } from "./messaging-inbound-nonce.js";
 import { splitOutboundBody } from "./messaging-platforms.js";
+import { settleMessageReceipt } from "./messaging-receipts.js";
 import { isUserProgressClientNonce } from "./user-progress.js";
 
 /**
@@ -719,6 +721,7 @@ async function deliverRow(
       where: { id: identity.id },
       data: { outboundSinceInbound: { increment: 1 } },
     });
+    await settleReply(deps, identity, threadId, row, context);
     return true;
   } catch (error) {
     if (accepted) {
@@ -843,6 +846,49 @@ async function resolveDirectThread(
     data: { dmThreadId: threadId },
   });
   return threadId;
+}
+
+/**
+ * The reply is out: react to the message it answers with the outcome. Runs
+ * only once the conversation has nothing pending, so the last part of a
+ * multi-part reply is the one that settles it.
+ */
+async function settleReply(
+  deps: MessagingDeliveryDeps,
+  identity: IdentityRow,
+  threadId: string,
+  row: MessagingOutboundRow,
+  context: AdapterContext,
+): Promise<void> {
+  if (!row.sourceMessageId) return;
+  try {
+    const pending = await deps.prisma.messagingOutbound.findFirst({
+      where: { status: "pending", identityId: identity.id },
+      select: { id: true },
+    });
+    if (pending) return;
+    const source = await deps.prisma.message.findUnique({
+      where: { id: row.sourceMessageId },
+      select: { runId: true },
+    });
+    if (!source?.runId) return;
+    const run = await deps.prisma.run.findUnique({
+      where: { id: source.runId },
+      select: { trigger: true, sourceMessage: { select: { clientNonce: true } } },
+    });
+    if (run?.trigger !== "messaging") return;
+    const handle = messagingInboundHandle(identity.provider, run.sourceMessage?.clientNonce);
+    if (!handle) return;
+    const replies = await deps.prisma.message.findMany({
+      where: { runId: source.runId, role: "bot" },
+      orderBy: { seq: "asc" },
+      select: { blocks: true },
+    });
+    const reply = replies.map((message) => extractText(message.blocks, new Set())).join("\n");
+    await settleMessageReceipt(deps.messaging, { threadId, handle, reply }, context);
+  } catch (error) {
+    getLogger().error("messaging receipt settle lookup error", error);
+  }
 }
 
 function messagingOutboundRetryDelayMs(attempts: number): number {

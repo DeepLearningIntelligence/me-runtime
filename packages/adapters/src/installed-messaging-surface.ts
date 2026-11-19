@@ -5,6 +5,7 @@ import type {
   MessagingInstallation,
   MessagingInstallationStore,
   MessagingInstallProvider,
+  MessagingReceiptAction,
   MessagingSendRequest,
   MessagingSurface,
 } from "@rakazo/adapter-kit";
@@ -122,11 +123,21 @@ export class InstalledMessagingSurface implements MessagingSurface {
     );
   }
 
-  async acknowledge(threadId: string, handle: string, context: AdapterContext) {
+  async acknowledge(
+    threadId: string,
+    handle: string,
+    action: MessagingReceiptAction,
+    context: AdapterContext,
+  ) {
     const scoped = await this.resolve(threadId, context);
-    if (!scoped) return this.fallback?.acknowledge(threadId, handle, context);
+    if (!scoped) return this.fallback?.acknowledge(threadId, handle, action, context);
     return this.withSurface(scoped.installation, (surface) =>
-      surface.acknowledge(scoped.threadId, unScopeHandle(scoped.installation, handle), context),
+      surface.acknowledge(
+        scoped.threadId,
+        unScopeHandle(scoped.installation, handle),
+        action,
+        context,
+      ),
     );
   }
 

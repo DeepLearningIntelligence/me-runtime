@@ -96,7 +96,7 @@ describe("MessagingTeamChatEmulator", () => {
     ]);
     emulator.resetWitnesses();
     expect(emulator.handleWebhook("teams", new Request("https://example.test"))).toBeNull();
-    await emulator.acknowledge(inbound.threadId, inbound.handle, context);
+    await emulator.acknowledge(inbound.threadId, inbound.handle, { kind: "typing" }, context);
     expect(emulator.sent).toEqual([]);
   });
 });
