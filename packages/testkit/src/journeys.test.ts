@@ -2825,7 +2825,7 @@ describeJourneys("required product journeys", () => {
       app,
       ada,
       "connections/begin",
-      { provider: "gmail", displayName: "Gmail" },
+      { provider: "slack", displayName: "Slack" },
     );
     expect(started.authorizationUrl).toBeNull();
     const connected = await rpc<{ status: string }>(app, ada, "connections/complete", {
