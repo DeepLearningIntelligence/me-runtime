@@ -65,6 +65,18 @@ describe("createMessagingReceipts", () => {
     expect(actions(messaging)).toEqual([{ kind: "typing" }]);
   });
 
+  it("shows typing for text where reactions are also supported", () => {
+    const messaging = fakeMessaging();
+    createMessagingReceipts(messaging).acknowledge(
+      WHATSAPP_THREAD,
+      WHATSAPP_HANDLE,
+      "text",
+      unhandled,
+    );
+
+    expect(actions(messaging)).toEqual([{ kind: "typing" }]);
+  });
+
   it.each([
     ["voice", { kind: "reaction", emoji: "👂" }],
     ["image", { kind: "reaction", emoji: "👀" }],
