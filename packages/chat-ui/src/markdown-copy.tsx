@@ -8,6 +8,8 @@ export type MarkdownCopy = {
   copied: string;
   copyCode: string;
   copyDiagramSource: string;
+  /** The summary of a details block the message did not title. */
+  details: string;
   /** Scrollable regions and the expanded dialog's title. */
   table: string;
   markdownTable: string;
@@ -35,6 +37,7 @@ export const defaultMarkdownCopy: MarkdownCopy = {
   copied: "Copied",
   copyCode: "Copy code",
   copyDiagramSource: "Copy diagram source",
+  details: "Details",
   table: "Table",
   markdownTable: "Markdown table",
   row: "Row",
