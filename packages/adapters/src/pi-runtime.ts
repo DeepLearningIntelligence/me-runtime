@@ -474,6 +474,7 @@ export class PiAgentRuntime implements AgentRuntime {
                       operationKind: request.usageOperationKind ?? "answer",
                       userId: context?.userId,
                       runId: request.runId,
+                      canaryGuard: request.canaryGuard,
                     },
                     {
                       ...usageHooks,

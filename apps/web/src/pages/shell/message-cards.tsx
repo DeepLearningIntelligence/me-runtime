@@ -272,6 +272,73 @@ export function ProductCard({ block }: { block: Extract<MessageBlock, { kind: "p
   );
 }
 
+/**
+ * The publication card a run posts after a public action (save_opportunity): who applied,
+ * who was denied, and whether the evidence behind it was validated. It is a read-only
+ * summary, so it has no controls beyond the GFIN link.
+ */
+export function PublicationCardView({
+  block,
+}: {
+  block: Extract<MessageBlock, { kind: "visual_pack" }>;
+}) {
+  const { t } = useLingui();
+  return (
+    <BuiCard
+      data-testid="publication-card"
+      role="group"
+      aria-label={t`Publication summary`}
+      className="w-full max-w-[440px] px-4 py-3.5"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-body-lg font-medium text-foreground">
+          <Trans>Publication</Trans>
+        </span>
+        <span
+          className={
+            block.validated
+              ? "inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-label text-success"
+              : "inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-label text-warning"
+          }
+        >
+          {block.validated ? <Trans>✓ Validated</Trans> : <Trans>! Needs attention</Trans>}
+        </span>
+      </div>
+      <dl className="mt-3 space-y-2">
+        <div>
+          <dt className="text-label text-muted-foreground">
+            <Trans>Applied</Trans>
+          </dt>
+          <dd className="text-body-sm text-foreground/90">
+            {block.applied_by.length > 0 ? block.applied_by.join(", ") : <Trans>None yet</Trans>}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-label text-muted-foreground">
+            <Trans>Denied</Trans>
+          </dt>
+          <dd className="text-body-sm text-foreground/90">
+            {block.denied_by.length > 0 ? block.denied_by.join(", ") : <Trans>None yet</Trans>}
+          </dd>
+        </div>
+      </dl>
+      {block.reason ? (
+        <p className="mt-2 text-label text-warning">
+          <Trans>Needs attention: {block.reason}</Trans>
+        </p>
+      ) : null}
+      <a
+        href={block.gfinLink}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-3 inline-block text-label text-foreground underline underline-offset-2"
+      >
+        <Trans>Open in Go Fund It Now</Trans>
+      </a>
+    </BuiCard>
+  );
+}
+
 function ChartCanvas({
   spec,
   data,

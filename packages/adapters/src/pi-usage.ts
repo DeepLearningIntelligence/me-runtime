@@ -334,6 +334,8 @@ export function observedPiStream(
     agentId?: string;
     userId?: string;
     runId?: string;
+    /** The Space's canary guard; the one central check before any model call. */
+    canaryGuard?: (name: string) => Promise<string | undefined>;
   } = {
     operationKind: "answer",
   },
@@ -416,6 +418,10 @@ export function observedPiStream(
         // A tool-budget or cancellation stop can reach Pi's next-turn hook after
         // aborting. It is not a model invocation and must not create unknown usage.
         options?.signal?.throwIfAborted();
+        // One central canary check: every actual model invocation spends the Space's
+        // daily budget, and a spent budget stops the run with the named refusal.
+        const canaryRefusal = await attribution.canaryGuard?.("model_call");
+        if (canaryRefusal) throw new Error(canaryRefusal);
         // Reject an unsupported declared control before reserving or making any request.
         const cacheRetention = resolvePiCacheRetention(model, options?.cacheRetention);
         const preparedContext = hooks?.prepareContext?.(context, model) ?? context;

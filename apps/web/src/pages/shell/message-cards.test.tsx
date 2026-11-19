@@ -30,7 +30,7 @@ vi.mock("@lingui/react/macro", () => ({
 }));
 
 import { connectMcpOauth } from "../../lib/mcp-connect";
-import { AppConnectCard, McpApprovalCard, ProductCard } from "./message-cards";
+import { AppConnectCard, McpApprovalCard, ProductCard, PublicationCardView } from "./message-cards";
 
 function popupFlow({ focused }: { focused: boolean }) {
   const channels: FakeChannel[] = [];
@@ -214,5 +214,57 @@ it("renders a product card from page facts and opens the product page", async ()
   } finally {
     await act(async () => root.unmount());
     host.remove();
+  }
+});
+
+it("renders a validated publication card with its lists and GFIN link", async () => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        <PublicationCardView
+          block={{
+            kind: "visual_pack",
+            validated: true,
+            applied_by: ["Coastal Resilience Grant"],
+            denied_by: [],
+            gfinLink: "https://app.gofunditnow.com",
+          }}
+        />,
+      ),
+    );
+    expect(host.textContent).toContain("Validated");
+    expect(host.textContent).toContain("Coastal Resilience Grant");
+    expect(host.textContent).toContain("None yet");
+    expect(host.querySelector("a")?.getAttribute("href")).toBe("https://app.gofunditnow.com");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("marks an unvalidated publication card with its reason", async () => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        <PublicationCardView
+          block={{
+            kind: "visual_pack",
+            validated: false,
+            applied_by: [],
+            denied_by: [],
+            reason: "gfin_connection_not_ready",
+            gfinLink: "https://app.gofunditnow.com",
+          }}
+        />,
+      ),
+    );
+    expect(host.textContent).toContain("Needs attention");
+    expect(host.textContent).toContain("gfin_connection_not_ready");
+    expect(host.textContent).not.toContain("Validated");
+  } finally {
+    await act(async () => root.unmount());
   }
 });

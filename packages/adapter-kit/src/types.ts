@@ -556,6 +556,11 @@ export const DEFAULT_CONTEXT_STRATEGY: AgentContextStrategy = "retrieval";
 export interface AgentRunRequest {
   /** Awaited producer-side accounting, independent of event-consumer cancellation. */
   onUsage?: (event: Extract<AgentRuntimeEvent, { type: "usage" }>) => void | Promise<void>;
+  /**
+   * Refuses this run's next model call when the Space has spent the day's AI canary
+   * budget, returning the named refusal the run fails with. Absent leaves it unarmed.
+   */
+  canaryGuard?: (name: string) => Promise<string | undefined>;
   contextStrategy?: AgentContextStrategy;
   /**
    * MCP servers that must return tool results whole. Direct tools match `slugs`

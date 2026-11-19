@@ -42,6 +42,7 @@ import {
 } from "@rakazo/db";
 import { enrichLogContext, getLogger } from "@rakazo/logging";
 import { formatAgentEnvironmentInstruction } from "./agent-environment.js";
+import { guardCanaryCall } from "./ai-guardrail.js";
 import { createApprovedEffectReplayQueue } from "./approval-effect.js";
 import { PARTIAL_REPLY_NOTE } from "./automated-messages.js";
 import { backgroundHelpersAllowed } from "./background-helpers.js";
@@ -1746,6 +1747,11 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
               verbatimMcpServers,
               threadId: thread.id,
               runId,
+              canaryGuard: (name) =>
+                guardCanaryCall(
+                  { events: deps.events },
+                  { spaceId: run.spaceId, threadId: thread.id, botId: bot.id, runId, name },
+                ),
               routineId: run.routineId,
               sourceMessageId: run.sourceMessageId,
               onUsage: async (event) => {
