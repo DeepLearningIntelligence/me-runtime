@@ -198,6 +198,7 @@ import {
 } from "./run-turn-images.js";
 import { loadAgentScratchpadContext } from "./scratchpad-context.js";
 import { inferScript } from "./scripted-runtime.js";
+import { maybeAutoSkillForUser, selfCheckRun } from "./selfcheck-wiring.js";
 import { loadSharedSpaceNote } from "./shared-space-note.js";
 import { builtinAgentSkillRecords, listAgentSkillRecords } from "./skill-tools.js";
 import {
@@ -270,6 +271,26 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
     ...executorDeps.events,
     finalizeRun: async (input) => {
       const result = await executorDeps.events.finalizeRun(input);
+      if (result) {
+        // After a run completes, check the reply against the person's own words.
+        // Best effort: a failed read must not fail the finalize that already committed.
+        void selfCheckRun(executorDeps.prisma, { runId: input.runId, spaceId: input.spaceId })
+          .then((findings) => {
+            if (findings.length === 0) return;
+            getLogger().info("run.selfcheck", {
+              "run.id": input.runId,
+              "space.id": input.spaceId,
+              "run.outcome": input.outcome,
+              findings: findings.map((finding) => ({
+                kind: finding.kind,
+                excerpt: finding.excerpt,
+              })),
+            });
+          })
+          .catch((error) => {
+            getLogger().warn("run.selfcheck_failed", { "run.id": input.runId, error });
+          });
+      }
       if (result || (await runEndedForThisWorker(executorDeps.prisma, input))) {
         endRunConnectorState(input.runId);
       }
@@ -306,6 +327,23 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
         "space.id": run.spaceId,
         ...(run.userId ? { "user.id": run.userId } : {}),
       });
+      // The user-message path: if this person has asked for the same work three or
+      // more times, write one verified skill doc and log the suggestion. It never
+      // messages them or starts anything on its own.
+      if (run.userId) {
+        void maybeAutoSkillForUser(deps.prisma, run.userId)
+          .then((suggestion) => {
+            if (!suggestion) return;
+            getLogger().info("run.autoskill_suggestion", {
+              "run.id": runId,
+              "user.id": run.userId,
+              suggestion,
+            });
+          })
+          .catch((error) => {
+            getLogger().warn("run.autoskill_failed", { "run.id": runId, error });
+          });
+      }
       if (isTerminal(run.status as RunStatus)) {
         // Finalized elsewhere (cancelled while waiting, another worker): this
         // worker's run-scoped state for it may end now; until a next touch, the

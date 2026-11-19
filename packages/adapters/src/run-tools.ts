@@ -13,6 +13,7 @@ import {
   PAGE_BROWSER_TOOL_NAMES,
 } from "./run-tool-selection.js";
 import { computerTools, pageBrowserTool } from "./run-tools-computer.js";
+import { deliverableTools } from "./run-tools-deliverables.js";
 import { emailTools } from "./run-tools-email.js";
 import { feedbackTools } from "./run-tools-feedback.js";
 import { fileTools } from "./run-tools-files.js";
@@ -55,6 +56,7 @@ const TOOL_HANDLERS = new Map<string, ToolHandler>([
   ...Object.entries(preferenceTools),
   ...Object.entries(feedbackTools),
   ...Object.entries(emailTools),
+  ...Object.entries(deliverableTools),
   ...[...PAGE_BROWSER_TOOL_NAMES].map((name) => [name, pageBrowserTool] as const),
 ]);
 
