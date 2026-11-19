@@ -18,12 +18,14 @@ import { getLogger } from "@rakazo/logging";
  * The person's Go Fund It Now connection (D-RUN-9).
  *
  * One function converges the connection for a person on every admission: it creates the
- * public connection on first admission, with no credential, and when a provisioning key
- * or the house key is configured it upgrades the same row to the connected label and
- * credential in this code path. A stored credential also selects the connected tool lane
- * in the guard; nothing writes a separate allowlist. A person who added a second server
- * pointing at the GFIN endpoint has it disabled here, because two rows would serve the
- * same connection with different credentials.
+ * public connection on first admission, with no credential, and only a per-person
+ * provisioning key upgrades the same row to the connected label and credential in this
+ * code path. The deployment house key is never written to a person's row, so no person
+ * can reach the deployment owner's pipeline. A stored credential on a gfin row is personal
+ * by construction, which is what the guard's connected lane means.
+ *
+ * A person who added a second server pointing at the GFIN endpoint has it disabled here,
+ * because two rows would serve the same connection with different credentials.
  *
  * The key is stored only through the encrypted secret store, as MCP credential material
  * (`{ secret }`); no row, log, prompt or DTO ever holds it. me.io never sends `org_id`,
@@ -59,22 +61,19 @@ export async function ensureGfinConnection(
     try {
       key = await resolveGfinKey(deps, user.id);
     } catch (error) {
-      // A malformed provisioning response is a named refusal, never a silent fallback to
-      // the house key; the next admission retries and the hook logs the refusal.
+      // A malformed provisioning response is a named refusal, never a retry against
+      // another credential; the next admission tries again and the hook logs it.
       if (error instanceof GfinKeyMalformedError) throw error;
-      // An unreachable provisioning endpoint degrades, visibly, to the house key.
-      if (deps.config.houseKey) {
-        getLogger().warn("gfin provisioning failed; using the house key", {
-          "gfin.reason": error instanceof Error ? error.message : "unknown",
-        });
-        key = deps.config.houseKey;
-      } else {
-        throw error;
-      }
+      // A failed provisioning call leaves the public connection in place. The house key
+      // is never written to a person's row, whatever the failure.
+      getLogger().warn("gfin provisioning failed; leaving the public connection", {
+        "gfin.reason": error instanceof Error ? error.message : "unknown",
+      });
     }
   }
-  // The row's own credential is the lane authority: a secret means the connected lane.
-  const mode: GfinMode = key || existing?.secretId ? "connected" : "public";
+  // A row's credential is the connected lane only when this service labelled it personal;
+  // a public-labelled row carrying one is a legacy house-key row and is cleared below.
+  const mode: GfinMode = key !== undefined || connectedAlready ? "connected" : "public";
   const label = labelFor(mode);
 
   let action: GfinConnectionOutcome["action"];
@@ -84,24 +83,30 @@ export async function ensureGfinConnection(
   } else if (key !== undefined && (existing.name !== label.name || !existing.secretId)) {
     await rekeyConnection(deps, user.id, existing, key, label);
     action = "rekeyed";
-  } else if (existing.name !== label.name) {
-    await relabelConnection(deps.prisma, existing.id, label);
-    action = "converged";
   } else {
-    action = "current";
+    let changed = false;
+    if (existing.secretId && mode === "public") {
+      await clearConnectionCredential(deps, existing.id, existing.secretId);
+      changed = true;
+    }
+    if (existing.name !== label.name) {
+      await relabelConnection(deps.prisma, existing.id, label);
+      changed = true;
+    }
+    action = changed ? "converged" : "current";
   }
   const disabled = await disableDuplicateEndpointRows(deps, user.id);
   if (disabled > 0 && action === "current") action = "converged";
   return { action, mode };
 }
 
-/** The provisioning endpoint (G3) first, the house key behind it, or no key at all. */
+/** The per-person provisioning endpoint (G3), or no key. The house key never enters a row. */
 async function resolveGfinKey(
   deps: GfinConnectionDeps,
   userId: string,
 ): Promise<string | undefined> {
   const config = deps.config;
-  if (!config.provision) return config.houseKey;
+  if (!config.provision) return undefined;
   const person = await deps.prisma.user.findUnique({
     where: { id: userId },
     select: { email: true },
@@ -220,6 +225,21 @@ async function relabelConnection(
   await prisma.mcpServer.update({
     where: { id },
     data: { name: label.name, description: label.description },
+  });
+}
+
+/**
+ * Legacy rows carried the deployment house key as their secret. A person's row must never
+ * hold it, so the credential is detached and its secret deleted; the public row stays.
+ */
+async function clearConnectionCredential(
+  deps: GfinConnectionDeps,
+  id: string,
+  secretId: string,
+): Promise<void> {
+  await deps.prisma.$transaction(async (tx) => {
+    await tx.mcpServer.update({ where: { id }, data: { secretId: null } });
+    await tx.secret.deleteMany({ where: { id: secretId } });
   });
 }
 

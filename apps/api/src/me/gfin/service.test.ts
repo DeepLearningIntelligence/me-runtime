@@ -204,34 +204,29 @@ describe("gfin connection provisioning", () => {
     expect(fake.secrets).toHaveLength(0);
   });
 
-  it("stores a configured key only as ciphertext, labelled connected", async () => {
+  it("a house key alone never becomes a credential on a person's row", async () => {
     const fake = fakePrisma();
     const outcome = await ensureGfinConnection(
       deps(fake, { ...CONFIG, houseKey: HOUSE_KEY }),
       USER,
     );
-    expect(outcome).toEqual({ action: "created", mode: "connected" });
+    expect(outcome).toEqual({ action: "created", mode: "public" });
     const row = fake.servers[0]!;
-    expect(row.name).toBe("Go Fund It Now");
-    // The key exists only as ciphertext in the encrypted store.
-    const secretRow = fake.secrets[0]!;
-    expect(secretRow.kind).toBe("mcp");
-    expect(secretRow.ciphertext).not.toContain(HOUSE_KEY);
-    const material = JSON.parse(await store.load(secretRow.ciphertext, secretRow.id as never));
-    expect(material).toEqual({ secret: HOUSE_KEY });
-    // The key is in no row JSON, no returned object, no other secret row.
+    expect(row.name).toBe(GFIN_PUBLIC_LABEL);
+    expect(row.secretId).toBeUndefined();
+    expect(fake.secrets).toHaveLength(0);
+    // The deployment key is in no row, no secret, and no returned surface.
     expect(await cleartextSurfaces(fake, outcome)).not.toContain(HOUSE_KEY);
   });
 
   it("converges: a second admission changes nothing", async () => {
     const fake = fakePrisma();
-    const config = { ...CONFIG, houseKey: HOUSE_KEY };
-    await ensureGfinConnection(deps(fake, config), USER);
+    await ensureGfinConnection(deps(fake, CONFIG), USER);
     const before = JSON.stringify(fake.servers);
-    const outcome = await ensureGfinConnection(deps(fake, config), USER);
-    expect(outcome).toEqual({ action: "current", mode: "connected" });
+    const outcome = await ensureGfinConnection(deps(fake, CONFIG), USER);
+    expect(outcome).toEqual({ action: "current", mode: "public" });
     expect(fake.servers).toHaveLength(1);
-    expect(fake.secrets).toHaveLength(1);
+    expect(fake.secrets).toHaveLength(0);
     expect(JSON.stringify(fake.servers)).toBe(before);
   });
 
@@ -293,6 +288,43 @@ describe("gfin connection provisioning", () => {
     expect(material).toEqual({ secret: PERSONAL_KEY });
   });
 
+  it("clears a legacy house-key credential from a public row", async () => {
+    const fake = fakePrisma();
+    const legacy = await store.put(JSON.stringify({ secret: HOUSE_KEY }), {
+      operationId: "seed",
+      traceId: "seed",
+      spaceId: "space-1",
+      userId: USER.id,
+      signal: new AbortController().signal,
+    } as never);
+    fake.secrets.push({
+      id: legacy.id,
+      userId: USER.id,
+      spaceId: null,
+      kind: "mcp",
+      ciphertext: legacy.ciphertext,
+    });
+    fake.servers.push({
+      id: "srv-legacy",
+      userId: USER.id,
+      spaceId: "space-1",
+      slug: GFIN_CONNECTION_SLUG,
+      name: GFIN_PUBLIC_LABEL,
+      endpoint: CONFIG.mcpUrl,
+      secretId: legacy.id,
+      enabled: true,
+    });
+    const outcome = await ensureGfinConnection(
+      deps(fake, { ...CONFIG, houseKey: HOUSE_KEY }),
+      USER,
+    );
+    expect(outcome).toEqual({ action: "converged", mode: "public" });
+    const row = fake.servers[0]!;
+    expect(row.name).toBe(GFIN_PUBLIC_LABEL);
+    expect(row.secretId).toBeNull();
+    expect(fake.secrets).toHaveLength(0);
+  });
+
   it("refuses a malformed per-person key by name instead of falling back", async () => {
     const fake = fakePrisma();
     const provision = provisionStub({ body: { key: "sk-not-a-gfin-key" } });
@@ -310,34 +342,40 @@ describe("gfin connection provisioning", () => {
         USER,
       ),
     ).rejects.toThrow(GFIN_KEY_MALFORMED);
-    // No row at all: the refusal is loud, the fallback silent one never happens.
+    // No row at all: the refusal is named, and the house key is not used instead.
     expect(fake.servers).toHaveLength(0);
     expect(fake.secrets).toHaveLength(0);
     expect(GfinKeyMalformedError).toBeDefined();
     expect(GFIN_PERSONAL_KEY_PREFIX).toBe("gfin_");
   });
 
-  it("degrades, named, to the house key when provisioning is unreachable", async () => {
+  it("leaves the public row with no secret when provisioning fails", async () => {
     const fake = fakePrisma();
     const provision = provisionStub({ status: 503 });
-    const outcome = await ensureGfinConnection(
-      deps(
-        fake,
-        {
-          ...CONFIG,
-          houseKey: HOUSE_KEY,
-          provision: { url: "https://g3.example.test/provision", token: "service-token" },
-        },
-        provision.fetchStub,
-      ),
-      USER,
-    );
-    expect(outcome).toEqual({ action: "created", mode: "connected" });
-    expect(fake.servers[0]!.name).toBe("Go Fund It Now");
-    const material = JSON.parse(
-      await store.load(fake.secrets[0]!.ciphertext, fake.secrets[0]!.id as never),
-    );
-    expect(material).toEqual({ secret: HOUSE_KEY });
+    const sink = createTestSink();
+    const previous = getLogger();
+    installLogger(createLogger({ service: "test", sinks: [sink], level: "debug" }));
+    try {
+      const outcome = await ensureGfinConnection(
+        deps(
+          fake,
+          {
+            ...CONFIG,
+            houseKey: HOUSE_KEY,
+            provision: { url: "https://g3.example.test/provision", token: "service-token" },
+          },
+          provision.fetchStub,
+        ),
+        USER,
+      );
+      expect(outcome).toEqual({ action: "created", mode: "public" });
+      expect(fake.servers[0]!.name).toBe(GFIN_PUBLIC_LABEL);
+      expect(fake.servers[0]!.secretId).toBeUndefined();
+      expect(fake.secrets).toHaveLength(0);
+      expect(JSON.stringify(sink.events)).toContain("gfin_provision_refused");
+    } finally {
+      installLogger(previous);
+    }
   });
 
   it("disables a duplicate server on the GFIN endpoint and leaves every other server alone", async () => {

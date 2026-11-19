@@ -207,7 +207,10 @@ function routeCallToolName(call: ConnectorCall): string {
 /** The deployment's Go Fund It Now connection settings, or undefined when it is off. */
 export interface GfinConnectionConfig {
   mcpUrl: string;
-  /** The house key behind the labelled public-search connection. */
+  /**
+   * Accepted for deployment compatibility only. A person's connection never reads or
+   * stores it: the connected lane needs a per-person provisioning key.
+   */
   houseKey?: string;
   /** The server-to-server provisioning endpoint (GFIN G3) that returns per-person keys. */
   provision?: { url: string; token: string };
@@ -217,6 +220,8 @@ export interface GfinConnectionConfig {
  * Reads the connection settings. Both provisioning values arrive together or the
  * deployment fails at boot, so a typo never silently disables the personal path. The
  * public connection is always configured: with no key it is created without a credential.
+ * `ME_GFIN_HOUSE_KEY` is still parsed for deployments that set it, but nothing in the
+ * person connection path reads it; only a per-person key reaches the connected lane.
  */
 export function parseGfinConnectionEnv(source: NodeJS.ProcessEnv): GfinConnectionConfig {
   const mcpUrl = source.ME_GFIN_MCP_URL?.trim() || GFIN_MCP_URL;
