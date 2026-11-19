@@ -103,18 +103,18 @@ describeWithDatabase("Composio catalog reconciliation", () => {
     const otherCookie = await signup(app, `other-connections-${stamp}@rakazo.test`, "Other");
     const owner = await rpc<Actor>(app, ownerCookie, "me");
     const other = await rpc<Actor>(app, otherCookie, "me");
-    await connectRemote(composio, owner, "GMAIL");
+    await connectRemote(composio, owner, "SLACK");
 
-    const first = await createConnection(owner, "GMAIL");
-    const duplicate = await createConnection(owner, "GMAIL");
-    const otherProvider = await createConnection(owner, "SLACK");
+    const first = await createConnection(owner, "SLACK");
+    const duplicate = await createConnection(owner, "SLACK");
+    const otherProvider = await createConnection(owner, "GITHUB");
     const otherUser = await createConnection(
       { spaceId: owner.spaceId, userId: other.userId },
-      "GMAIL",
+      "SLACK",
     );
     const otherWorkspace = await createConnection(
       { spaceId: other.spaceId, userId: owner.userId },
-      "GMAIL",
+      "SLACK",
     );
 
     const catalogs = await Promise.all(
@@ -123,7 +123,7 @@ describeWithDatabase("Composio catalog reconciliation", () => {
       ),
     );
     for (const catalog of catalogs) {
-      expect(catalog).toContainEqual(expect.objectContaining({ slug: "GMAIL", connected: true }));
+      expect(catalog).toContainEqual(expect.objectContaining({ slug: "SLACK", connected: true }));
     }
 
     await expect(statuses([first.id, duplicate.id])).resolves.toEqual([
@@ -147,12 +147,12 @@ describeWithDatabase("Composio catalog reconciliation", () => {
     const cookie = await signup(app, `multi-account-${stamp}@rakazo.test`, "Multi Account");
     const first = await rpc<{ connectionId: string }>(app, cookie, "connections/begin", {
       connectorId: "composio",
-      provider: "GMAIL",
+      provider: "SLACK",
       displayName: "Personal",
     });
     const second = await rpc<{ connectionId: string }>(app, cookie, "connections/begin", {
       connectorId: "composio",
-      provider: "GMAIL",
+      provider: "SLACK",
       displayName: "Work",
     });
     await expect(
@@ -205,19 +205,47 @@ describeWithDatabase("Composio catalog reconciliation", () => {
       rpc<Array<{ slug: string; connected: boolean }>>(app, cookie, "connections/catalog", {
         connectorId: "composio",
       }),
-    ).resolves.toContainEqual(expect.objectContaining({ slug: "GMAIL", connected: false }));
+    ).resolves.toContainEqual(expect.objectContaining({ slug: "SLACK", connected: false }));
+  });
+
+  it("refuses each default-denied Google app before creating a connection row", async () => {
+    const cookie = await signup(app, `denied-google-${stamp}@rakazo.test`, "Denied Google");
+    const actor = await rpc<Actor>(app, cookie, "me");
+    const before = await asSystem(handles.prisma).connection.count({
+      where: { spaceId: actor.spaceId, userId: actor.userId },
+    });
+    for (const provider of [
+      "gmail",
+      "googlecalendar",
+      "googledrive",
+      "googledocs",
+      "googlesheets",
+    ]) {
+      await expect(
+        rpc(app, cookie, "connections/begin", {
+          connectorId: "composio",
+          provider,
+          displayName: provider,
+        }),
+      ).rejects.toThrow(`connector_not_allowed: ${provider} is not offered on this deployment.`);
+    }
+    await expect(
+      asSystem(handles.prisma).connection.count({
+        where: { spaceId: actor.spaceId, userId: actor.userId },
+      }),
+    ).resolves.toBe(before);
   });
 
   it("marks a connected account Composio reports dead as needing reconnect", async () => {
     const cookie = await signup(app, `reconnect-${stamp}@rakazo.test`, "Reconnect");
     const work = await rpc<{ connectionId: string }>(app, cookie, "connections/begin", {
       connectorId: "composio",
-      provider: "GMAIL",
+      provider: "SLACK",
       displayName: "Work",
     });
     const personal = await rpc<{ connectionId: string }>(app, cookie, "connections/begin", {
       connectorId: "composio",
-      provider: "GMAIL",
+      provider: "SLACK",
       displayName: "Personal",
     });
     const row = await asSystem(handles.prisma).connection.findUniqueOrThrow({
@@ -283,7 +311,7 @@ describeWithDatabase("Composio catalog reconciliation", () => {
       app,
       cookie,
       "connections/begin",
-      { connectorId: "composio", provider: "GMAIL", displayName: "Gmail" },
+      { connectorId: "composio", provider: "SLACK", displayName: "Slack" },
     );
     expect(started.authorizationUrl).toBeNull();
     const context = {
@@ -296,31 +324,24 @@ describeWithDatabase("Composio catalog reconciliation", () => {
         {
           id: started.connectionId,
           connectorId: "composio",
-          externalId: "GMAIL",
-          displayName: "Gmail",
+          externalId: "SLACK",
+          displayName: "Slack",
         },
       ],
     };
     const tools = (await handles.connectors.discoverTools(context)).filter(
       (candidate) => candidate.route?.connectorId === "composio",
     );
-    expect(tools.map((tool) => tool.name)).toEqual([
-      "GMAIL_FETCH_EMAILS",
-      "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
-      "GMAIL_FETCH_MESSAGE_BY_THREAD_ID",
-      "GMAIL_SEND_EMAIL",
-      "GMAIL_CREATE_EMAIL_DRAFT",
-      "GMAIL_LIST_LABELS",
-    ]);
-    const fetchTool = tools.find((tool) => tool.name === "GMAIL_FETCH_EMAILS");
-    expect(fetchTool).toBeDefined();
+    expect(tools.map((tool) => tool.name)).toEqual(["SLACK_EMULATED_ACTION"]);
+    const actionTool = tools.find((tool) => tool.name === "SLACK_EMULATED_ACTION");
+    expect(actionTool).toBeDefined();
     const events = [];
     for await (const event of handles.connectors.execute(
       {
-        tool: fetchTool!.name,
-        args: { query: "from:teammate", max_results: 5 },
+        tool: actionTool!.name,
+        args: { value: "slack-ok" },
         executionId: "composio-product-execution",
-        route: fetchTool!.route,
+        route: actionTool!.route,
       },
       context,
     )) {
@@ -330,23 +351,15 @@ describeWithDatabase("Composio catalog reconciliation", () => {
       expect.objectContaining({
         type: "result",
         data: expect.objectContaining({
-          data: {
-            messages: [
-              expect.objectContaining({
-                messageId: "18c5f5d1a2b3c4d6",
-                subject: "Quarterly planning notes",
-              }),
-            ],
-            resultSizeEstimate: 1,
-          },
+          data: { ok: true, tool: "SLACK_EMULATED_ACTION", args: { value: "slack-ok" } },
         }),
       }),
     );
     expect(fake.executions).toContainEqual(
       expect.objectContaining({
         userId: actor.userId,
-        tool: "GMAIL_FETCH_EMAILS",
-        args: { query: "from:teammate", max_results: 5 },
+        tool: "SLACK_EMULATED_ACTION",
+        args: { value: "slack-ok" },
       }),
     );
   });
