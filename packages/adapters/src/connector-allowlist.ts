@@ -95,6 +95,11 @@ export class ConnectorNotAllowedError extends Error {
   }
 }
 
+/** Composio's own discovery and dispatch tools carry no app of their own. */
+export function isComposioMetaTool(toolName: string): boolean {
+  return toolName.trim().toUpperCase().startsWith("COMPOSIO_");
+}
+
 /** Composio prefixes every tool slug with its toolkit, e.g. GMAIL_SEND_EMAIL. */
 export function composioToolkitId(toolName: string): string {
   const slug = toolName.trim().toLowerCase();

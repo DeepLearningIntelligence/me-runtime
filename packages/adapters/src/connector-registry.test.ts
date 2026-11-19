@@ -193,6 +193,45 @@ describe("ConnectorRegistry", () => {
     expect(discovered.map((entry) => entry.name)).toEqual(["SLACK_POST_MESSAGE"]);
   });
 
+  it("keeps Composio's meta-tools when the allowlist narrows", async () => {
+    const composio = new StubConnector("composio", [
+      tool("COMPOSIO_SEARCH_TOOLS"),
+      tool("COMPOSIO_MULTI_EXECUTE_TOOL"),
+      tool("GMAIL_SEND_EMAIL"),
+      tool("SLACK_POST_MESSAGE"),
+    ]);
+    const registry = new ConnectorRegistry([composio], { allowlist: ["slack"], denylist: [] });
+
+    const discovered = await registry.discoverTools(context);
+    expect(discovered.map((entry) => entry.name)).toEqual([
+      "COMPOSIO_SEARCH_TOOLS",
+      "COMPOSIO_MULTI_EXECUTE_TOOL",
+      "SLACK_POST_MESSAGE",
+    ]);
+  });
+
+  it("refuses an app nested inside a meta-tool when that app is denied", async () => {
+    const composio = new StubConnector("composio", [tool("COMPOSIO_MULTI_EXECUTE_TOOL")]);
+    const registry = new ConnectorRegistry([composio], { allowlist: ["slack"], denylist: [] });
+
+    const events: ConnectorEvent[] = [];
+    for await (const event of registry.execute(
+      {
+        tool: "COMPOSIO_MULTI_EXECUTE_TOOL",
+        args: { tools: [{ tool_slug: "GMAIL_SEND_EMAIL" }] },
+        executionId: "execution",
+        route: { connectorId: "composio", toolName: "COMPOSIO_MULTI_EXECUTE_TOOL" },
+      },
+      context,
+    )) {
+      events.push(event);
+    }
+    expect(events).toEqual([
+      expect.objectContaining({ type: "error", message: expect.stringContaining("gmail") }),
+    ]);
+    expect(composio.calls).toHaveLength(0);
+  });
+
   it("lets deny beat allow", async () => {
     const composio = new StubConnector("composio", [tool("SLACK_POST_MESSAGE")]);
     const registry = new ConnectorRegistry([composio], {

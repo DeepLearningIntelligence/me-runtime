@@ -15,6 +15,7 @@ import {
   ConnectorNotAllowedError,
   composioCallToolkits,
   composioToolkitId,
+  isComposioMetaTool,
   connectorAllowed,
   connectorNotAllowedRefusal,
   DEFAULT_CONNECTOR_POLICY,
@@ -156,6 +157,9 @@ export class ConnectorRegistry implements ConnectorProvider {
 }
 
 function allowsTool(policy: ConnectorPolicy, toolName: string): boolean {
+  // A meta-tool carries no app. Narrowing apps must not remove discovery and dispatch, and
+  // every nested call inside a multi-execute is checked by its own toolkit below.
+  if (isComposioMetaTool(toolName)) return true;
   return connectorAllowed(policy, COMPOSIO_CONNECTOR_ID, composioToolkitId(toolName));
 }
 
@@ -172,11 +176,9 @@ function deniedComposioToolkit(policy: ConnectorPolicy, call: ConnectorCall): st
   if ((call.route?.connectorId ?? COMPOSIO_CONNECTOR_ID) !== COMPOSIO_CONNECTOR_ID)
     return undefined;
   const toolkits = composioCallToolkits(call);
-  if (toolkits.length === 0) {
-    return connectorAllowed(policy, COMPOSIO_CONNECTOR_ID, COMPOSIO_CONNECTOR_ID)
-      ? undefined
-      : COMPOSIO_CONNECTOR_ID;
-  }
+  // No toolkit means a meta-tool call with nothing nested: discovery or a bare dispatch.
+  // Its execution still needs a connected account, and nested calls are checked below.
+  if (toolkits.length === 0) return undefined;
   return toolkits.find((toolkitId) => !connectorAllowed(policy, COMPOSIO_CONNECTOR_ID, toolkitId));
 }
 
