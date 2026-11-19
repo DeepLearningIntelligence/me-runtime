@@ -244,14 +244,17 @@ const FOLLOW_UP_TOOL_NAMES = [
 /**
  * Whether this run can set its own follow-ups. Only a run the owner started can tell what is
  * still open with them; routines, webhooks, channels, subagents and hand-offs from other bots
- * are not, and some of them would need approval for every schedule.
+ * are not, and some of them would need approval for every schedule. A bot whose owner turned
+ * check-ins off is not offered one either.
  */
 export function followUpsOffered(
   tools: readonly { name: string }[],
   ownerStartedRun: boolean,
+  checkInsEnabled = true,
 ): boolean {
   return (
     ownerStartedRun &&
+    checkInsEnabled &&
     FOLLOW_UP_TOOL_NAMES.every((name) => tools.some((tool) => tool.name === name))
   );
 }

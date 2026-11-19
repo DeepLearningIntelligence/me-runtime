@@ -525,7 +525,12 @@ describe("run tool selection", () => {
   });
 
   it("offers self-set follow-ups only on runs the owner started, with tools to track them", () => {
-    const offered = (trigger: string, disabledBuiltinTools?: string[], followUpFromUser = true) =>
+    const offered = (
+      trigger: string,
+      disabledBuiltinTools?: string[],
+      followUpFromUser = true,
+      checkInsEnabled = true,
+    ) =>
       followUpsOffered(
         selectBuiltinToolsForRun({
           graphicalToolsAllowed: true,
@@ -537,12 +542,15 @@ describe("run tool selection", () => {
           disabledBuiltinTools,
         }),
         isOwnerStartedRun(trigger, followUpFromUser),
+        checkInsEnabled,
       );
     expect(offered("user")).toBe(true);
     expect(offered("follow_up")).toBe(true);
     expect(offered("call_end")).toBe(true);
     // A group hand-off queues a follow_up whose source message another bot wrote.
     expect(offered("follow_up", undefined, false)).toBe(false);
+    // The owner turned check-ins off, so no follow-up is offered.
+    expect(offered("user", undefined, true, false)).toBe(false);
     for (const trigger of [
       "routine",
       "webhook",
