@@ -16,6 +16,8 @@ import {
 import { resolveDeploymentModel } from "./deployment-model.js";
 import type { ExecutorDeps } from "./executor-deps.js";
 import type { FleetPrepareDeps } from "./fleet-tools.js";
+import type { LlmRouteDecision, LlmRouteRequest, LlmRoutingConfig } from "./llm-routing.js";
+import { loadLlmRoutingConfig, routeRequest, routingTargetFor } from "./llm-routing.js";
 import {
   kickModelCredentialRefresh,
   persistStoredModelSecret,
@@ -506,6 +508,17 @@ export async function resolveConnectedRunModel(
   };
 }
 
+/**
+ * The run path's one orchestration-routing call site: the decision for a request while
+ * routing is enabled, or null while the configured model keeps serving every request.
+ */
+export function resolveRunModelRouting(
+  request: LlmRouteRequest,
+  config: LlmRoutingConfig = loadLlmRoutingConfig(),
+): LlmRouteDecision | null {
+  return config.enabled ? routeRequest(request, config) : null;
+}
+
 export async function resolveRunModel(
   deps: ExecutorDeps,
   scope: {
@@ -513,6 +526,8 @@ export async function resolveRunModel(
     spaceId: string;
     botId?: string;
   },
+  /** The run's own text, when the caller has it, so routing can classify the request. */
+  request?: Pick<LlmRouteRequest, "prompt" | "history">,
 ): Promise<AgentRunRequest["model"]> {
   // The bot's model is shared config; the credential that runs it stays the run user's.
   const override = scope.botId
@@ -549,7 +564,7 @@ export async function resolveRunModel(
       deployment: deps.deploymentModelConfigured ? resolveDeploymentModel() : null,
     },
   });
-  const { credential, thinkingLevel } = selected;
+  let { credential, thinkingLevel } = selected;
   let { provider, id } = selected;
   if (!provider || !id) {
     const runtimeFallback = runtimeFallbackModel(deps.runtime);
@@ -557,6 +572,28 @@ export async function resolveRunModel(
     id ??= runtimeFallback?.id ?? null;
   }
   if (!provider || !id) throw new Error(MISSING_MODEL_RUN_ERROR);
+  // The run path's one orchestration-routing call site. Routing is off by default;
+  // when an operator enables it, a classified request moves to the configured target
+  // and that provider's own credential replaces the selected one.
+  const routingConfig = loadLlmRoutingConfig();
+  const decision = resolveRunModelRouting(
+    { ...(request ?? {}), model: { provider, id } },
+    routingConfig,
+  );
+  if (decision && decision.modelId !== id) {
+    const target = routingTargetFor(routingConfig, decision.reason);
+    if (!target) throw new Error(`Routing decision "${decision.reason}" has no model configured`);
+    provider = target.provider;
+    id = target.modelId;
+    thinkingLevel = null;
+    credential = await findConnectedModelCredential(
+      deps.prisma,
+      deps.secretStore,
+      scope,
+      provider,
+      id,
+    );
+  }
   // The key is resolved for the provider that won above, not before it is known.
   const resolved = await resolveModelKey(
     deps,

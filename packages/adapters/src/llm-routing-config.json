@@ -1,0 +1,20 @@
+{
+  "enabled": false,
+  "cdr": null,
+  "freeLocal": null,
+  "imageVideo": {
+    "provider": "kie",
+    "modelId": "kie/kling-video",
+    "enabled": false,
+    "ceilingUsd": null,
+    "notes": "KIE.ai is OFF. Enabling image or video generation starts a recurring vendor spend, so it stays off until the owner approves it. The same change that sets enabled true must set ceilingUsd to a per-request USD cap: routeRequest refuses the vendor while the ceiling is null."
+  },
+  "code": null,
+  "notes": {
+    "routing": "Every rule is inert while enabled is false: routeRequest returns the current model with reason default. Enabling routing is a deliberate operator action, not a default.",
+    "cdr": "PII-bearing requests route to cdr. With routing enabled and cdr null, routeRequest refuses the request instead of sending personal data to the default hosted model.",
+    "freeLocal": "Research and exploration route to freeLocal when the operator serves a local model. With freeLocal null they stay on the current model.",
+    "imageVideo": "Image and video requests route to KIE.ai only when enabled is true and ceilingUsd is set. Until then they stay on the current model and the reason still says image-video.",
+    "code": "Code requests keep the default model. Set code only to move them deliberately; the signal patterns live in llm-routing.ts."
+  }
+}
