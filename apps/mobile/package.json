@@ -32,6 +32,7 @@
     "@expo/ui": "58.0.27",
     "@lingui/core": "6.12.0",
     "@lingui/react": "6.12.0",
+    "@rakazo/adapters": "workspace:*",
     "@rakazo/chat-ui": "workspace:*",
     "@rakazo/contracts": "workspace:*",
     "@rakazo/core": "workspace:*",

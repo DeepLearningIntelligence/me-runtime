@@ -1,4 +1,5 @@
 import { useLingui } from "@lingui/react/macro";
+import type { ConnectorPolicy } from "@rakazo/contracts";
 import type { ThreadItem } from "@rakazo/core";
 import {
   answerableAskMessageIds,
@@ -81,6 +82,7 @@ export function useThreadRows({
   readSeq,
   markedUnreadMessageId,
   highlightedMessageId,
+  connectorPolicy,
 }: {
   snap: MobileSnapshot | null;
   userId: string;
@@ -101,6 +103,7 @@ export function useThreadRows({
   readSeq: number | null;
   markedUnreadMessageId?: string;
   highlightedMessageId: string | null;
+  connectorPolicy?: ConnectorPolicy;
 }) {
   const { t } = useLingui();
   const locale = useUiLocale();
@@ -190,6 +193,7 @@ export function useThreadRows({
           columnWidth={columnWidth}
           enableJump={options?.enableJump ?? false}
           index={options?.index ?? 0}
+          connectorPolicy={connectorPolicy}
         />
       );
     },
@@ -224,6 +228,7 @@ export function useThreadRows({
       userId,
       t,
       locale,
+      connectorPolicy,
     ],
   );
 

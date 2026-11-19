@@ -1481,6 +1481,14 @@ export const ServerUpdateRequestSchema = z.object({
 });
 export type ServerUpdateRequest = z.infer<typeof ServerUpdateRequestSchema>;
 
+export const ConnectorPolicySchema = z.object({
+  /** Present and non-null narrows to these ids; null does not narrow. */
+  allowlist: z.array(z.string()).nullable(),
+  /** Always removes these ids; deny wins over allow. */
+  denylist: z.array(z.string()),
+});
+export type ConnectorPolicy = z.infer<typeof ConnectorPolicySchema>;
+
 export const MeSchema = z.object({
   maxUploadSizeBytes: z.number().int().positive().optional(),
   maxAttachmentsPerMessage: z.number().int().positive().optional(),
@@ -1488,6 +1496,11 @@ export const MeSchema = z.object({
   phoneCallsEnabled: z.boolean().default(false),
   /** Operator-configured menu links. Absent from older servers. */
   navLinks: z.array(NavLinkSchema).default([]),
+  /**
+   * The Composio policy this deployment serves (ME_CONNECTOR_ALLOWLIST and
+   * ME_CONNECTOR_DENYLIST). Absent from older servers; clients then use the default deny list.
+   */
+  connectorPolicy: ConnectorPolicySchema.optional(),
   userId: Id,
   email: z.string().email(),
   name: z.string(),

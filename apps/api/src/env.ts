@@ -9,6 +9,7 @@ import {
   boatApiKeyFromEnv,
   boatApiUrlFromEnv,
   mcpStdioOptionsFromEnv,
+  parseConnectorPolicy,
   parseGfinConnectionEnv,
   photonProjectsFromEnv,
   resolveCloudAgentProvider,
@@ -125,6 +126,8 @@ export interface AppEnv {
   boatApiKey: string | undefined;
   boatApiUrl: string | undefined;
   composioApiKey: string | undefined;
+  /** ME_CONNECTOR_ALLOWLIST and ME_CONNECTOR_DENYLIST, parsed once. */
+  connectorPolicy: ReturnType<typeof parseConnectorPolicy>;
   /** Optional integrations.sh-compatible catalog base URL. */
   integrationsCatalogUrl: string | undefined;
   pipedreamClientId: string | undefined;
@@ -325,6 +328,10 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     boatApiKey: boatApiKeyFromEnv(source),
     boatApiUrl: boatApiUrlFromEnv(source),
     composioApiKey: source.COMPOSIO_API_KEY,
+    connectorPolicy: parseConnectorPolicy(
+      source.ME_CONNECTOR_DENYLIST,
+      source.ME_CONNECTOR_ALLOWLIST,
+    ),
     integrationsCatalogUrl: optional(source.INTEGRATIONS_CATALOG_URL),
     pipedreamClientId: optional(source.PIPEDREAM_CLIENT_ID),
     pipedreamClientSecret: optional(source.PIPEDREAM_CLIENT_SECRET),

@@ -6,6 +6,7 @@ import type {
   MessagingSurface,
   SecretStore,
 } from "@rakazo/adapter-kit";
+import type { ConnectorPolicy } from "@rakazo/contracts";
 import { phoneCallSettings, resolveEncryptionKey, uploadSizeFromEnv } from "@rakazo/core";
 import type { PrismaClient, ThreadEvents } from "@rakazo/db";
 import { createSecurityEventPruner, securityEventRetentionDays } from "@rakazo/db";
@@ -16,6 +17,7 @@ import type { ComposioProvider } from "./composio-connector.js";
 import { ComposioConnector, isComposioEnabled } from "./composio-connector.js";
 import { createIdleComputerSweeper } from "./computer-idle.js";
 import { reconcileComputerUpdates } from "./computer-update.js";
+import { parseConnectorPolicy } from "./connector-allowlist.js";
 import { createConnectorStack } from "./connector-registry.js";
 import { deploymentModelUsageLookup, resolveDeploymentModel } from "./deployment-model.js";
 import { createRunExecutor } from "./executor.js";
@@ -49,6 +51,8 @@ import { createWebProvider } from "./web-provider-factory.js";
 export interface RunRuntimeEnv extends PipedreamEnvironmentValues {
   dataDir: string;
   composioApiKey: string | undefined;
+  /** ME_CONNECTOR_ALLOWLIST and ME_CONNECTOR_DENYLIST, parsed once. */
+  connectorPolicy: ConnectorPolicy;
   cursorApiKey: string | undefined;
   deploymentModelKey: string | undefined;
   deploymentModelConfigured: boolean;
@@ -73,6 +77,10 @@ export function runRuntimeEnvFromProcess(source: NodeJS.ProcessEnv): RunRuntimeE
     dataDir: source.DATA_DIR ?? "./data",
     encryptionKey: resolveEncryptionKey(source),
     composioApiKey: source.COMPOSIO_API_KEY,
+    connectorPolicy: parseConnectorPolicy(
+      source.ME_CONNECTOR_DENYLIST,
+      source.ME_CONNECTOR_ALLOWLIST,
+    ),
     cursorApiKey: source.CURSOR_API_KEY,
     deploymentModelKey: deploymentModel.key,
     deploymentModelConfigured: deploymentModel.configured,
@@ -135,24 +143,35 @@ export function createConnectorRuntime(
     network,
     env.mcpAllowPrivateEndpoint,
   );
-  const integrationSettings = new IntegrationProviderSettings(prisma, secrets, env.encryptionKey, {
-    composio:
-      composio ??
-      (isComposioEnabled(env.composioApiKey)
-        ? new ComposioConnector({ apiKey: env.composioApiKey })
-        : undefined),
-    pipedream,
-  });
-  const stack = createConnectorStack(composio, [
-    installed,
-    ...integrationSettings
-      .providers()
-      .filter((provider) => !composio || provider.describe().id !== "composio"),
-    // The deployment-managed GFIN connection serves its closed public tool set only,
-    // in this process and in the worker alike; see gfin-connection.ts.
-    guardConnectorTools(mcp, GFIN_TOOL_GUARD),
-    ...(overrides.connectors ?? []),
-  ]);
+  const integrationSettings = new IntegrationProviderSettings(
+    prisma,
+    secrets,
+    env.encryptionKey,
+    {
+      composio:
+        composio ??
+        (isComposioEnabled(env.composioApiKey)
+          ? new ComposioConnector({ apiKey: env.composioApiKey })
+          : undefined),
+      pipedream,
+    },
+    undefined,
+    env.connectorPolicy,
+  );
+  const stack = createConnectorStack(
+    composio,
+    [
+      installed,
+      ...integrationSettings
+        .providers()
+        .filter((provider) => !composio || provider.describe().id !== "composio"),
+      // The deployment-managed GFIN connection serves its closed public tool set only,
+      // in this process and in the worker alike; see gfin-connection.ts.
+      guardConnectorTools(mcp, GFIN_TOOL_GUARD),
+      ...(overrides.connectors ?? []),
+    ],
+    env.connectorPolicy,
+  );
   integrationSettings.warmDirectories();
   return { mcpOAuth, mcp, pipedream, installed, integrationSettings, stack };
 }

@@ -3174,6 +3174,54 @@ describe("private API connectors", () => {
 });
 
 describe("connections.begin", () => {
+  it("refuses an app the deployment does not offer before any transaction or authorization", async () => {
+    const begin = vi.fn();
+    const transaction = vi.fn();
+    const handler = new RPCHandler(
+      createRouter({
+        prisma: { $transaction: transaction } as unknown as PrismaClient,
+        connectors: { managed: vi.fn(() => ({ begin })) },
+        env: {
+          defaultProvider: "fake",
+          defaultModel: "fake-model",
+          webOrigin: "http://127.0.0.1:5173",
+          screenProxySecret: "fake-test-secret",
+          sandboxProvider: "fake",
+        },
+        dataDir: "/tmp/rakazo-router-test",
+      } as unknown as RouterDeps),
+    );
+
+    const response = await handle(
+      handler,
+      new Request("http://127.0.0.1/rpc/connections/begin", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          json: { connectorId: "composio", provider: "gmail", displayName: "Gmail" },
+        }),
+      }),
+      {
+        prefix: "/rpc",
+        context: {
+          actor: {
+            spaceId: "workspace-1",
+            userId: "user-1",
+            email: "user@rakazo.test",
+            isDeploymentOwner: true,
+          },
+        },
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      json: { message: "connector_not_allowed: gmail is not offered on this deployment." },
+    });
+    expect(begin).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
   it("reuses a revoked row for the same provider instead of inserting a duplicate", async () => {
     const begin = vi.fn().mockResolvedValue({ state: "gmail-state", authorizationUrl: null });
     const update = vi.fn().mockResolvedValue({
@@ -3211,6 +3259,7 @@ describe("connections.begin", () => {
         webOrigin: "http://127.0.0.1:5173",
         screenProxySecret: "fake-test-secret",
         sandboxProvider: "fake",
+        connectorPolicy: { allowlist: null, denylist: [] },
       },
       dataDir: "/tmp/rakazo-router-test",
     } as unknown as RouterDeps;
@@ -3303,6 +3352,7 @@ describe("connections.begin", () => {
           webOrigin: "http://127.0.0.1:5173",
           screenProxySecret: "fake-test-secret",
           sandboxProvider: "fake",
+          connectorPolicy: { allowlist: null, denylist: [] },
         },
         dataDir: "/tmp/rakazo-router-test",
       } as unknown as RouterDeps),
@@ -3374,6 +3424,7 @@ describe("connections.begin", () => {
           webOrigin: "http://127.0.0.1:5173",
           screenProxySecret: "fake-test-secret",
           sandboxProvider: "fake",
+          connectorPolicy: { allowlist: null, denylist: [] },
         },
         dataDir: "/tmp/rakazo-router-test",
       } as unknown as RouterDeps),

@@ -6,23 +6,40 @@ import type {
   ConnectorTool,
   ManagedConnectorProvider,
 } from "@rakazo/adapter-kit";
+import type { ConnectorPolicy } from "@rakazo/contracts";
 import { getLogger } from "@rakazo/logging";
 import type { ComposioProvider } from "./composio-connector.js";
 import { sanitizeIntegrationError } from "./composio-connector.js";
+import {
+  COMPOSIO_CONNECTOR_ID,
+  ConnectorNotAllowedError,
+  composioCallToolkits,
+  composioToolkitId,
+  connectorAllowed,
+  connectorNotAllowedRefusal,
+  DEFAULT_CONNECTOR_POLICY,
+} from "./connector-allowlist.js";
 
 export class ConnectorRegistry implements ConnectorProvider {
   private readonly providers = new Map<string, ConnectorProvider>();
+  private readonly offeredProviders = new Map<string, ConnectorProvider>();
+  private readonly policy: ConnectorPolicy;
 
-  constructor(providers: ConnectorProvider[]) {
+  constructor(
+    providers: ConnectorProvider[],
+    connectorPolicy: ConnectorPolicy = DEFAULT_CONNECTOR_POLICY,
+  ) {
+    this.policy = connectorPolicy;
     for (const provider of providers) {
       const id = provider.describe().id;
       if (this.providers.has(id)) throw new Error(`Duplicate connector id ${id}`);
       this.providers.set(id, provider);
+      this.offeredProviders.set(id, allowlistedProvider(provider, connectorPolicy));
     }
   }
 
   managedProviders(): ManagedConnectorProvider[] {
-    return [...this.providers.values()].filter(isManagedConnectorProvider);
+    return [...this.offeredProviders.values()].filter(isManagedConnectorProvider);
   }
 
   managed(id: string): ManagedConnectorProvider | undefined {
@@ -50,7 +67,10 @@ export class ConnectorRegistry implements ConnectorProvider {
     const providerTools = await Promise.all(
       [...this.providers].map(async ([connectorId, provider]) => {
         try {
-          return [connectorId, await provider.discoverTools(context)] as const;
+          return [
+            connectorId,
+            allowlistedTools(this.policy, connectorId, await provider.discoverTools(context)),
+          ] as const;
         } catch (error) {
           getLogger().error("connector discovery failed", sanitizeIntegrationError(error), {
             "connector.id": connectorId,
@@ -80,10 +100,15 @@ export class ConnectorRegistry implements ConnectorProvider {
   }
 
   async *execute(call: ConnectorCall, context: AdapterContext): AsyncIterable<ConnectorEvent> {
-    const connectorId = call.route?.connectorId ?? "composio";
+    const connectorId = call.route?.connectorId ?? COMPOSIO_CONNECTOR_ID;
+    const denied = deniedComposioToolkit(this.policy, call);
+    if (denied) {
+      yield { type: "error", message: connectorNotAllowedRefusal(denied) };
+      return;
+    }
     const provider = this.providers.get(connectorId);
     if (!provider) {
-      yield { type: "error", message: `unknown connector ${connectorId}` };
+      yield { type: "error", message: connectorNotAllowedRefusal(connectorId) };
       return;
     }
     const connectionId = call.route?.connectionId ?? call.connectionId;
@@ -124,8 +149,114 @@ export class ConnectorRegistry implements ConnectorProvider {
       }
       return undefined;
     }
+    if (deniedComposioToolkit(this.policy, call)) return undefined;
     const provider = this.providers.get(connectorId);
     return provider?.resolveCall?.({ ...call, tool: call.route?.toolName ?? call.tool }, context);
+  }
+}
+
+function allowsTool(policy: ConnectorPolicy, toolName: string): boolean {
+  return connectorAllowed(policy, COMPOSIO_CONNECTOR_ID, composioToolkitId(toolName));
+}
+
+function allowlistedTools(
+  policy: ConnectorPolicy,
+  connectorId: string,
+  tools: ConnectorTool[],
+): ConnectorTool[] {
+  if (connectorId !== COMPOSIO_CONNECTOR_ID) return tools;
+  return tools.filter((tool) => allowsTool(policy, tool.name));
+}
+
+function deniedComposioToolkit(policy: ConnectorPolicy, call: ConnectorCall): string | undefined {
+  if ((call.route?.connectorId ?? COMPOSIO_CONNECTOR_ID) !== COMPOSIO_CONNECTOR_ID)
+    return undefined;
+  const toolkits = composioCallToolkits(call);
+  if (toolkits.length === 0) {
+    return connectorAllowed(policy, COMPOSIO_CONNECTOR_ID, COMPOSIO_CONNECTOR_ID)
+      ? undefined
+      : COMPOSIO_CONNECTOR_ID;
+  }
+  return toolkits.find((toolkitId) => !connectorAllowed(policy, COMPOSIO_CONNECTOR_ID, toolkitId));
+}
+
+function allowlistedProvider(
+  provider: ConnectorProvider,
+  policy: ConnectorPolicy,
+): ConnectorProvider {
+  if (provider.describe().id !== COMPOSIO_CONNECTOR_ID || !isManagedConnectorProvider(provider)) {
+    return provider;
+  }
+  return new AllowlistedManagedConnector(provider, policy);
+}
+
+/** Filter the catalog and refuse begin before an authorization window can open. */
+class AllowlistedManagedConnector implements ManagedConnectorProvider {
+  readonly listReconnectRefs?: ManagedConnectorProvider["listReconnectRefs"];
+  readonly warmDirectory?: ManagedConnectorProvider["warmDirectory"];
+  readonly resolveConnectedAccountId?: ManagedConnectorProvider["resolveConnectedAccountId"];
+  readonly cancelAuthorizationRequest?: ManagedConnectorProvider["cancelAuthorizationRequest"];
+  readonly revokeUnreferencedAccounts?: ManagedConnectorProvider["revokeUnreferencedAccounts"];
+  readonly endRun?: ConnectorProvider["endRun"];
+
+  constructor(
+    private readonly inner: ManagedConnectorProvider,
+    private readonly policy: ConnectorPolicy,
+  ) {
+    this.listReconnectRefs = inner.listReconnectRefs?.bind(inner);
+    this.warmDirectory = inner.warmDirectory?.bind(inner);
+    this.resolveConnectedAccountId = inner.resolveConnectedAccountId?.bind(inner);
+    this.cancelAuthorizationRequest = inner.cancelAuthorizationRequest?.bind(inner);
+    this.revokeUnreferencedAccounts = inner.revokeUnreferencedAccounts?.bind(inner);
+    this.endRun = inner.endRun?.bind(inner);
+  }
+
+  describe() {
+    return this.inner.describe();
+  }
+
+  async catalog(context: AdapterContext, query?: string) {
+    const items = await this.inner.catalog(context, query);
+    return items.filter((item) =>
+      connectorAllowed(this.policy, this.inner.describe().id, item.slug),
+    );
+  }
+
+  async discoverTools(context: AdapterContext) {
+    return allowlistedTools(this.policy, this.inner.describe().id, [
+      ...(await this.inner.discoverTools(context)),
+    ]);
+  }
+
+  resolveCall(call: ConnectorCall, context: AdapterContext) {
+    return this.inner.resolveCall?.(call, context) ?? Promise.resolve(undefined);
+  }
+
+  execute(call: ConnectorCall, context: AdapterContext) {
+    return this.inner.execute(call, context);
+  }
+
+  async begin(request: Parameters<ManagedConnectorProvider["begin"]>[0], context: AdapterContext) {
+    if (connectorAllowed(this.policy, this.inner.describe().id, request.provider)) {
+      return this.inner.begin(request, context);
+    }
+    throw new ConnectorNotAllowedError(request.provider);
+  }
+
+  complete(request: Parameters<ManagedConnectorProvider["complete"]>[0], context: AdapterContext) {
+    return this.inner.complete(request, context);
+  }
+
+  revoke(ref: string, context: AdapterContext) {
+    return this.inner.revoke(ref, context);
+  }
+
+  connectionReady(context: AdapterContext, externalId: string) {
+    return this.inner.connectionReady(context, externalId);
+  }
+
+  listConnectedExternalIds(context: AdapterContext) {
+    return this.inner.listConnectedExternalIds(context);
   }
 }
 
@@ -146,9 +277,13 @@ function isManagedConnectorProvider(
 export function createConnectorStack(
   composio: ComposioProvider | undefined,
   providers: ConnectorProvider[] = [],
+  connectorPolicy: ConnectorPolicy = DEFAULT_CONNECTOR_POLICY,
 ) {
   return {
     composio,
-    connector: new ConnectorRegistry([...(composio ? [composio] : []), ...providers]),
+    connector: new ConnectorRegistry(
+      [...(composio ? [composio] : []), ...providers],
+      connectorPolicy,
+    ),
   };
 }
