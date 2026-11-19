@@ -3,6 +3,7 @@ import {
   changeUserTimezone,
   DEFAULT_FOLLOW_UP_PREFERENCE,
   effectiveModelRole,
+  ensurePersonalizeHeartbeatRoutine,
   hasHostedModelCredits,
   isAutoReviewCheckerConfigured,
   loadUserIncomingCalls,
@@ -95,7 +96,15 @@ export function accountRoutes(ctx: RouterContext) {
       }),
     },
     health: os.health.handler(async () => ({ ok: true as const, version: "0.1.0" })),
-    me: authed.me.handler(async ({ context }): Promise<Me> => meDto(deps, context.actor)),
+    me: authed.me.handler(async ({ context }): Promise<Me> => {
+      // The app shell's boot ensures the one heartbeat routine exists; the routine scheduler
+      // ticks it from then on, whatever messaging channels the person connects later.
+      await ensurePersonalizeHeartbeatRoutine(
+        { prisma: deps.prisma, jobs: deps.jobs },
+        context.actor,
+      ).catch((error) => getLogger().error("personalize heartbeat ensure", error));
+      return meDto(deps, context.actor);
+    }),
     billing: {
       selectFunding: authed.billing.selectFunding.handler(async ({ context, input }) => {
         const billing = requireBilling(deps);
@@ -166,9 +175,11 @@ export function accountRoutes(ctx: RouterContext) {
       followUps: {
         get: authed.preferences.followUps.get.handler(async ({ context }) => {
           const { spaceId, userId } = context.actor;
-          return (await deps.prisma.notificationPreference.findUnique({
-            where: { spaceId_userId: { spaceId, userId } },
-          })) ?? DEFAULT_FOLLOW_UP_PREFERENCE;
+          return (
+            (await deps.prisma.notificationPreference.findUnique({
+              where: { spaceId_userId: { spaceId, userId } },
+            })) ?? { ...DEFAULT_FOLLOW_UP_PREFERENCE, heartbeats: true }
+          );
         }),
         update: authed.preferences.followUps.update.handler(({ context, input }) => {
           const { spaceId, userId } = context.actor;

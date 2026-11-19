@@ -1559,6 +1559,8 @@ model Routine {
   watchState     Json?
   /// One-shot follow-up state (FollowUpStateSchema); null for a normal routine.
   followUp       Json?
+  /// PersonalizeME heartbeat marker ({ version: 1, kind: "heartbeat" }); null for an ordinary routine.
+  personalize    Json?
   lastRunAt      DateTime?
   nextRunAt      DateTime?
   /// Runs in a row the model provider refused for the account; each one spaces out the schedule.
@@ -2097,6 +2099,8 @@ model NotificationPreference {
   takeover Boolean @default(true)
   /// Whether this person accepts follow-ups in this Space.
   followUps Boolean @default(true)
+  /// Whether this person receives the daily PersonalizeME heartbeat in this Space.
+  heartbeats Boolean @default(true)
   /// Minutes after local midnight when follow-ups pause and resume; equal values mean no window.
   quietHoursStart Int @default(1320)
   quietHoursEnd   Int @default(420)

@@ -25,6 +25,7 @@ import { protectedComputerLifecycleRefusal } from "./desktop-command-guard.js";
 import type { ExecutorDeps } from "./executor-deps.js";
 import { wakeFollowUp } from "./follow-up.js";
 import { routineRunModelPin } from "./model-selection.js";
+import { isPersonalizeHeartbeatRoutine, wakePersonalizeHeartbeat } from "./personalize-routine.js";
 import { findPendingRoutineTick, routineTimerNonce } from "./routine-coalescing.js";
 import { nextRoutineWatchAt, parseRoutineWatch, tickRoutineWatch } from "./routine-watch.js";
 import { notifyRun } from "./run-notifications.js";
@@ -173,6 +174,14 @@ export async function wakeRoutine(deps: ExecutorDeps, routineId: string, schedul
     await deps.prisma.routine.updateMany({
       where: { id: routine.id, active: true },
       data: { active: false, nextRunAt: null },
+    });
+    return;
+  }
+  // A heartbeat is a routine row but never a model run: the engine reads and delivers it.
+  if (isPersonalizeHeartbeatRoutine(routine.personalize)) {
+    await wakePersonalizeHeartbeat(deps, routine, {
+      scheduledAt,
+      botThreadId: bot?.thread?.id ?? null,
     });
     return;
   }

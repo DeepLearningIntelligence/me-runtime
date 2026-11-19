@@ -305,6 +305,8 @@ export type OrganizationList = z.infer<typeof OrganizationListSchema>;
 
 const FollowUpPreferencesSchema = z.object({
   followUps: z.boolean(),
+  /** Optional in an update so older clients keep working; the row always carries it. */
+  heartbeats: z.boolean().optional(),
   quietHoursStart: z.int().min(0).max(1439),
   quietHoursEnd: z.int().min(0).max(1439),
   followUpDailyCap: z.int32().min(1),
