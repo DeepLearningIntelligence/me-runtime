@@ -503,18 +503,12 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       })
     : undefined;
   // The deployment's GFIN connection for every person, converged at workspace admission.
-  // Provisioning is off (named, once) until the house key or the provisioning endpoint is set.
-  const afterWorkspaceReady = env.gfin
-    ? async (user: { id: string }) => {
-        await ensureGfinConnection({ prisma, secrets, config: env.gfin }, user).catch((error) =>
-          getLogger().error("gfin connection provisioning failed", error),
-        );
-      }
-    : undefined;
-  if (!env.gfin)
-    getLogger().info(
-      "gfin connection provisioning is off: set ME_GFIN_HOUSE_KEY (or ME_GFIN_PROVISION_URL with ME_GFIN_PROVISION_TOKEN) to connect every person to Go Fund It Now",
+  // With no key it is the public connection; a key upgrades the same row in place.
+  const afterWorkspaceReady = async (user: { id: string }) => {
+    await ensureGfinConnection({ prisma, secrets, config: env.gfin }, user).catch((error) =>
+      getLogger().error("gfin connection provisioning failed", error),
     );
+  };
   const auth = createAuth(prisma, {
     directoryProvisioning: Boolean(directory),
     analytics,
@@ -788,6 +782,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       maxAttachmentsPerMessage: env.maxAttachmentsPerMessage,
       agentRuntime: env.agentRuntime,
       modelPolicy: env.modelPolicy,
+      connectorPolicy: env.connectorPolicy,
       defaultProvider: env.defaultProvider,
       defaultModel: env.defaultModel,
       teamChatJudgeProvider: env.teamChatJudgeProvider,
@@ -911,7 +906,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   }
   // The phone door answers before the auth library sees the request; it runs in
   // the system context above, like every other authentication path.
-  mountPhoneSigninRoutes(app, { prisma, auth, env, clientIp: requestClientIp });
+  mountPhoneSigninRoutes(app, { prisma, auth, env, clientIp: requestClientIp, jobs });
   if (directory) {
     app.on(["GET", "POST", "PUT", "PATCH", "DELETE"], "/api/auth/scim/v2/*", async (c) => {
       const changes: DirectoryAccountChange[] = [];

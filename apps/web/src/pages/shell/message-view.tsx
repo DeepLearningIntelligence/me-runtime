@@ -1,9 +1,15 @@
 import { plural } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
+import {
+  connectorCardAllowed,
+  DEFAULT_CONNECTOR_POLICY,
+  isProvisionedGfinEndpoint,
+} from "@rakazo/adapters/connector-allowlist";
 import { ChatMarkdown, LinkifiedText, withBlockMentions } from "@rakazo/chat-ui/web";
 import type {
   BotAvatarSet,
   ComputerReleaseReason,
+  ConnectorPolicy,
   LoginFieldInput,
   MessageBlock,
   MessageReaction,
@@ -85,6 +91,7 @@ export const MessageView = memo(function MessageView({
   onOpenImportSetup,
   rpc,
   showToolActivity,
+  connectorPolicy = DEFAULT_CONNECTOR_POLICY,
   onReply,
   onMarkUnread,
   markedUnread = false,
@@ -139,6 +146,8 @@ export const MessageView = memo(function MessageView({
   onOpenImportSetup?: (target: ImportSetupTarget) => void;
   rpc: ReturnType<typeof createSpaceRpc>;
   showToolActivity: boolean;
+  /** ME_CONNECTOR_ALLOWLIST and ME_CONNECTOR_DENYLIST from bootstrap; absent uses the default deny list. */
+  connectorPolicy?: ConnectorPolicy;
   onReply: (message: ThreadMessage) => void;
   onMarkUnread: (message: ThreadMessage) => void;
   markedUnread?: boolean;
@@ -480,6 +489,7 @@ export const MessageView = memo(function MessageView({
             return <ChoiceCard key={i} botId={botId} block={block} onBotChanged={onBotChanged} />;
           }
           if (block.kind === "app_connect") {
+            if (!connectorCardAllowed(connectorPolicy, block)) return null;
             const botId = "botId" in artifactTarget ? artifactTarget.botId : message.botId;
             if (!botId) return null;
             return (
@@ -528,6 +538,7 @@ export const MessageView = memo(function MessageView({
             );
           }
           if (block.kind === "mcp_approval") {
+            if (isProvisionedGfinEndpoint(block.endpoint)) return null;
             const botId = "botId" in artifactTarget ? artifactTarget.botId : message.botId;
             if (!botId) return null;
             return (

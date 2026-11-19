@@ -1,4 +1,5 @@
 import { Trans, useLingui } from "@lingui/react/macro";
+import { DEFAULT_CONNECTOR_POLICY } from "@rakazo/adapters/connector-allowlist";
 import type {
   AgentSkillCatalogEntry,
   Bot,
@@ -1104,6 +1105,7 @@ function SpaceShell() {
               markedUnreadMessageId={read.markedUnreadMessageId}
               transcript={transcript}
               showToolActivity={showToolActivity}
+              connectorPolicy={bootstrapMe?.connectorPolicy ?? DEFAULT_CONNECTOR_POLICY}
               olderCursor={activeSnapshot?.olderCursor ?? null}
               unreadAfterSeq={read.unreadAfterSeq}
               loadingOlder={loadingOlder}

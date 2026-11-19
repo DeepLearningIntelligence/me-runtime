@@ -276,6 +276,7 @@ function unavailableTool(server: McpServer, reason: string): ConnectorTool {
       resourceRevision: server.revision,
       toolName: UNAVAILABLE_TOOL,
       catalogGroup: server.slug,
+      credentialed: Boolean(server.secretId),
     },
   };
 }
@@ -521,6 +522,7 @@ export class McpConnector implements ConnectorProvider {
                 resourceRevision: assignment.server.revision,
                 toolName: tool.name,
                 catalogGroup: assignment.server.slug,
+                credentialed: Boolean(assignment.server.secretId),
                 appResourceUri: mcpToolAppResourceUri(tool),
               },
             }));

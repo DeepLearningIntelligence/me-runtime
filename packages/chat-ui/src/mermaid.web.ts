@@ -1,7 +1,8 @@
 import type { ResolvedAppearance } from "@rakazo/ui-tokens";
 import { webTokensForAppearance } from "@rakazo/ui-tokens";
 import type mermaid from "mermaid";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
+import { useWebAppearance } from "./appearance.web";
 import { chatMermaidConfig } from "./mermaid";
 
 type Mermaid = typeof mermaid;
@@ -109,26 +110,12 @@ export function renderMermaidSvg(
   });
 }
 
-function readAppearance(): ResolvedAppearance {
-  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
-}
-
-function subscribeAppearance(onChange: () => void) {
-  const observer = new MutationObserver(onChange);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-  return () => observer.disconnect();
-}
-
 /**
  * The SVG for a diagram in the page's current theme. Undefined while it renders and null when it
  * cannot be drawn; the caller shows the code block in both cases, so the source is never lost.
  */
 export function useMermaidSvg(source: string): string | null | undefined {
-  const appearance = useSyncExternalStore<ResolvedAppearance>(
-    subscribeAppearance,
-    readAppearance,
-    () => "dark",
-  );
+  const appearance = useWebAppearance();
   const key = renderKey(source, appearance);
   const [result, setResult] = useState<{ key: string; svg: string | null }>();
   useEffect(() => {

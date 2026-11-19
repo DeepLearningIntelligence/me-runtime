@@ -35,6 +35,7 @@ type SigninRow = {
   consumedAt: Date | null;
   expiresAt: Date;
   attempts: number;
+  senderAddress?: string | null;
 };
 
 function boundSignin(overrides: Partial<SigninRow> = {}): SigninRow {
@@ -49,6 +50,7 @@ function boundSignin(overrides: Partial<SigninRow> = {}): SigninRow {
     consumedAt: null,
     expiresAt: new Date(NOW + 5 * 60_000),
     attempts: 0,
+    senderAddress: null,
     ...overrides,
   };
 }
@@ -159,6 +161,10 @@ function mounted(
       signupAllowlist: "",
     } as AppEnv & SignupPolicyEnv,
     clientIp: () => undefined,
+    // The welcome job's publisher; no fixture here binds a sender address, so
+    // the route's post-sign-in link reports `not_attempted` and enqueues
+    // nothing (session.test.ts covers the attach and its enqueue).
+    jobs: { enqueue: async () => Promise.resolve() },
   });
   return app;
 }
@@ -173,9 +179,10 @@ async function verifyCall(app: Hono, body: Record<string, unknown>): Promise<Res
 
 describe("the verify route's mode decision", () => {
   it("refuses a link door with no session: 401, nothing attached", async () => {
-    const fake = fakePrisma([{ id: OPENER, email: "opener@x.test" }], [
-      boundSignin({ linkUserId: OPENER }),
-    ]);
+    const fake = fakePrisma(
+      [{ id: OPENER, email: "opener@x.test" }],
+      [boundSignin({ linkUserId: OPENER })],
+    );
     const { auth, issuedTo } = fakeAuth(null);
     const app = mounted(fake, auth);
 
@@ -224,16 +231,17 @@ describe("the verify route's mode decision", () => {
   });
 
   it("completes a link door for its own signed-in opener", async () => {
-    const fake = fakePrisma([{ id: OPENER, email: "opener@x.test" }], [
-      boundSignin({ linkUserId: OPENER }),
-    ]);
+    const fake = fakePrisma(
+      [{ id: OPENER, email: "opener@x.test" }],
+      [boundSignin({ linkUserId: OPENER })],
+    );
     const { auth, issuedTo } = fakeAuth(OPENER);
     const app = mounted(fake, auth);
 
     const response = await verifyCall(app, { nonce: NONCE, code: CODE });
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, linked: true });
+    expect(await response.json()).toEqual({ ok: true, linked: true, whatsapp: "not_attempted" });
     expect(fake.people[0]!.phoneHash).toBe(PHONE_HASH);
     expect(fake.signins[0]!.consumedAt).not.toBeNull();
     expect(issuedTo).toEqual([]);
@@ -250,7 +258,7 @@ describe("the verify route's mode decision", () => {
     const response = await verifyCall(app, { nonce: NONCE, code: CODE });
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true });
+    expect(await response.json()).toEqual({ ok: true, whatsapp: "not_attempted" });
     expect(issuedTo).toEqual([OPENER]);
     expect(response.headers.get("set-cookie")).toContain("me.session=token-for-opener-1");
     expect(fake.signins[0]!.consumedAt).not.toBeNull();

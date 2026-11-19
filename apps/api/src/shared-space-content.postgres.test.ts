@@ -208,8 +208,8 @@ describePostgres("shared space content (PostgreSQL)", () => {
       data: {
         spaceId,
         userId: owner.userId,
-        provider: "gmail",
-        displayName: "Owner mail",
+        provider: "slack",
+        displayName: "Owner Slack",
         status: "connected",
       },
     });

@@ -3,9 +3,9 @@ import { Button, InputOTP, InputOTPGroup, InputOTPSlot } from "@rakazo/ui-web";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { authClient } from "../../lib/auth";
-import type { StartedDoor } from "./door";
+import type { DoorRefusal, StartedDoor } from "./door";
 import { doorRefusal, startPhoneDoor, verifyPhoneDoor } from "./door";
-import type { DoorRefusal } from "./door";
+import { rememberWhatsappLink } from "./entry";
 
 const CODE_LENGTH = 6;
 const codeFieldClass = "size-12 text-heading3 first:rounded-l-xl last:rounded-r-xl";
@@ -118,9 +118,11 @@ export function PhoneDoorPanel({ onSignedIn }: { onSignedIn: () => void }) {
     if (!door || pending || value.length < CODE_LENGTH) return;
     setPending(true);
     try {
-      await verifyPhoneDoor({ nonce: door.nonce, code: value });
+      const result = await verifyPhoneDoor({ nonce: door.nonce, code: value });
       // The session cookie is set; the store refetches, and the routes move
-      // the person on once the session lands.
+      // the person on once the session lands. The WhatsApp link state rides
+      // with the journey to the onboarding flow.
+      rememberWhatsappLink(result.whatsapp);
       saveDoor(null);
       authClient.$store.notify("$sessionSignal");
       onSignedIn();

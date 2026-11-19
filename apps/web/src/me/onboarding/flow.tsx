@@ -11,7 +11,9 @@ import { errorText } from "../../lib/user-error";
 import { submitClass } from "../../pages/Auth";
 import { ensureFirstBot } from "../../pages/onboarding/first-bot";
 import { BRAND_NAME } from "../brand";
-import { startedFromInvite } from "./entry";
+import type { DoorWhatsappState } from "./door";
+import { parseWhatsappState } from "./door";
+import { startedFromInvite, takeWhatsappLink } from "./entry";
 
 /**
  * The one onboarding path (ME-RUN-001 section 4): a person lands here signed in
@@ -37,6 +39,12 @@ export function MeOnboardingPage() {
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [step, setStep] = useState<Step>("name");
   const [capabilities, setCapabilities] = useState<AuthCapabilities | null>(null);
+  // The door's verify answer for this journey: `linked` or `already_linked`
+  // skips the manual link step entirely, the others reach the done screen.
+  const [whatsapp] = useState<DoorWhatsappState | null>(() =>
+    parseWhatsappState(takeWhatsappLink()),
+  );
+  const whatsappLinked = whatsapp === "linked" || whatsapp === "already_linked";
 
   useEffect(() => {
     let active = true;
@@ -65,7 +73,7 @@ export function MeOnboardingPage() {
           navigate("/app", { replace: true });
           return;
         }
-        setStep(me.name === PHONE_PERSON_NAME ? "name" : "link");
+        setStep(me.name === PHONE_PERSON_NAME ? "name" : whatsappLinked ? "meter" : "link");
       })
       .catch(() => {
         if (active) navigate("/app", { replace: true });
@@ -73,7 +81,7 @@ export function MeOnboardingPage() {
     return () => {
       active = false;
     };
-  }, [navigate]);
+  }, [navigate, whatsappLinked]);
 
   function goTo(next: Step) {
     setStep(next);
@@ -108,7 +116,7 @@ export function MeOnboardingPage() {
       ) : step === "email" ? (
         <EmailStep onSkip={() => goTo("whatsapp")} />
       ) : step === "whatsapp" ? (
-        <WhatsAppChoiceStep onDone={() => goTo("link")} />
+        <WhatsAppChoiceStep onDone={() => goTo(whatsappLinked ? "meter" : "link")} />
       ) : step === "link" ? (
         <LinkStep
           chatUrl={capabilities?.whatsappChatUrl ?? null}
@@ -120,6 +128,7 @@ export function MeOnboardingPage() {
       ) : (
         <DoneStep
           chatUrl={capabilities?.whatsappChatUrl ?? null}
+          whatsapp={whatsapp}
           toPortal={() => navigate("/app", { replace: true })}
         />
       )}
@@ -324,12 +333,7 @@ function LinkStep({
     <div className="flex w-full flex-col items-center">
       {code ? (
         <>
-          <Button
-            type="button"
-            size="lg"
-            className={submitClass}
-            render={<a href={openLink!} />}
-          >
+          <Button type="button" size="lg" className={submitClass} render={<a href={openLink!} />}>
             <Trans>Open WhatsApp</Trans>
           </Button>
           <p className="mt-3 w-full text-center text-body text-muted-foreground">
@@ -433,52 +437,97 @@ function MeterStep({ onDone }: { onDone: () => void }) {
   );
 }
 
-function DoneStep({ chatUrl, toPortal }: { chatUrl: string | null; toPortal: () => void }) {
-  const invited = startedFromInvite();
+/** The done screen's word for a link state that needs explaining; null keeps the default. */
+function whatsappStateNote(whatsapp: DoorWhatsappState): string | null {
+  switch (whatsapp) {
+    case "linked_elsewhere":
+      return t`This WhatsApp number already chats with another me account.`;
+    case "agent_has_other_number":
+      return t`This number is linked to another agent of yours. Switch it in Settings, then People.`;
+    default:
+      return null;
+  }
+}
+
+function DoneStep({
+  chatUrl,
+  whatsapp,
+  toPortal,
+}: {
+  chatUrl: string | null;
+  whatsapp: DoorWhatsappState | null;
+  toPortal: () => void;
+}) {
+  // A number the door just linked ends in WhatsApp: the primary button goes
+  // back to the chat the person came from, whatever opened the journey.
+  const backToWhatsapp = whatsappLinkedState(whatsapp) && chatUrl;
+  const note = whatsapp ? whatsappStateNote(whatsapp) : null;
   return (
     <div className="flex w-full flex-col items-center">
-      <p className="w-full text-center text-body text-muted-foreground">
-        <Trans>Your agents are ready in WhatsApp.</Trans>
-      </p>
-      {invited ? (
+      {note ? (
+        <p role="status" className="w-full text-center text-body text-muted-foreground">
+          {note}
+        </p>
+      ) : (
+        <p className="w-full text-center text-body text-muted-foreground">
+          <Trans>Your agents are ready in WhatsApp.</Trans>
+        </p>
+      )}
+      {backToWhatsapp ? (
         <>
-          {chatUrl ? (
-            <Button
-              type="button"
-              size="lg"
-              className={submitClass}
-              render={<a href={chatUrl} />}
-            >
-              <Trans>Back to WhatsApp</Trans>
-            </Button>
-          ) : (
-            <Button type="button" size="lg" className={submitClass} onClick={toPortal}>
-              <Trans>Open the portal</Trans>
-            </Button>
-          )}
+          <Button type="button" size="lg" className={submitClass} render={<a href={chatUrl!} />}>
+            <Trans>Back to WhatsApp</Trans>
+          </Button>
           <Button type="button" variant="link" size="sm" className="mt-3" onClick={toPortal}>
             <Trans>Open the portal</Trans>
           </Button>
         </>
       ) : (
-        <>
-          <Button type="button" size="lg" className={submitClass} onClick={toPortal}>
-            <Trans>Open the portal</Trans>
-          </Button>
-          {chatUrl ? (
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              className="mt-3"
-              render={<a href={chatUrl} />}
-            >
-              <Trans>Chat in WhatsApp</Trans>
-            </Button>
-          ) : null}
-        </>
+        invitedLayout(chatUrl, toPortal)
       )}
     </div>
+  );
+}
+
+function whatsappLinkedState(whatsapp: DoorWhatsappState | null): boolean {
+  return whatsapp === "linked" || whatsapp === "already_linked";
+}
+
+/** The ending a journey without a fresh link keeps: WhatsApp first on an invite. */
+function invitedLayout(chatUrl: string | null, toPortal: () => void) {
+  const invited = startedFromInvite();
+  return invited ? (
+    <>
+      {chatUrl ? (
+        <Button type="button" size="lg" className={submitClass} render={<a href={chatUrl} />}>
+          <Trans>Back to WhatsApp</Trans>
+        </Button>
+      ) : (
+        <Button type="button" size="lg" className={submitClass} onClick={toPortal}>
+          <Trans>Open the portal</Trans>
+        </Button>
+      )}
+      <Button type="button" variant="link" size="sm" className="mt-3" onClick={toPortal}>
+        <Trans>Open the portal</Trans>
+      </Button>
+    </>
+  ) : (
+    <>
+      <Button type="button" size="lg" className={submitClass} onClick={toPortal}>
+        <Trans>Open the portal</Trans>
+      </Button>
+      {chatUrl ? (
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="mt-3"
+          render={<a href={chatUrl} />}
+        >
+          <Trans>Chat in WhatsApp</Trans>
+        </Button>
+      ) : null}
+    </>
   );
 }
 

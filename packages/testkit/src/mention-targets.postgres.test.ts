@@ -387,21 +387,21 @@ describeWithDatabase("structured @ mention targets", () => {
       notifyOnFinish: true,
     });
     const started = await rpc<{ connectionId: string }>(app, cookie, "connections/begin", {
-      provider: "gmail",
-      displayName: "Gmail",
+      provider: "slack",
+      displayName: "Slack",
     });
     await rpc(app, cookie, "connections/complete", { connectionId: started.connectionId });
 
     const sent = await rpc<{ runId: string }>(app, cookie, "threads/send", {
       botId: bot.id,
-      text: "check my email",
+      text: "check my messages",
       mentions: [{ kind: "connector", id: started.connectionId }],
     });
     const run = await prisma.run.findUniqueOrThrow({
       where: { id: sent.runId },
       include: { task: true },
     });
-    expect(run.task.prompt).toContain("Use these connectors if relevant: Gmail");
+    expect(run.task.prompt).toContain("Use these connectors if relevant: Slack");
   });
 
   it("lands a group-targeted send in the group transcript, not the 1:1 bot thread", async () => {
@@ -555,8 +555,8 @@ describeWithDatabase("structured @ mention targets", () => {
       active: false,
     });
     const started = await rpc<{ connectionId: string }>(app, ada, "connections/begin", {
-      provider: "gmail",
-      displayName: "Gmail",
+      provider: "slack",
+      displayName: "Slack",
     });
     await rpc(app, ada, "connections/complete", { connectionId: started.connectionId });
     const group = await rpc<{ id: string }>(app, ada, "groups/create", {

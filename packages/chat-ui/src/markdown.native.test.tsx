@@ -2232,6 +2232,59 @@ describe("native markdown diagrams", () => {
   });
 });
 
+describe("native markdown directives", () => {
+  it("degrades a callout to a titled block with its body", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown>
+        {':::callout{type="warning" title="Careful"}\n\n**Body** text\n\n:::'}
+      </ChatMarkdown>,
+    );
+    expect(html).toContain("Careful");
+    expect(html).toContain("Body");
+    expect(html).not.toContain(":::callout");
+    expect(html).toContain(`data-border-left-color="${darkTokens.warning}"`);
+  });
+
+  it("keeps a details block closed until it is pressed", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<ChatMarkdown>{':::details{title="More"}\n\nHidden body\n\n:::'}</ChatMarkdown>);
+    });
+    expect(container.textContent).toContain("More");
+    expect(container.textContent).not.toContain("Hidden body");
+    const toggle = container.querySelector("[data-accessibility-role='button']");
+    expect(toggle).not.toBeNull();
+    await act(async () => {
+      toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.textContent).toContain("Hidden body");
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("keeps an unclosed directive as text without crashing", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown streaming>{':::details{title="More"}\n\nBody'}</ChatMarkdown>,
+    );
+    expect(html).toContain(":::details");
+    expect(html).toContain("Body");
+  });
+
+  it("leaves an unknown directive as its source", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown>{':::note{title="Nope"}\n\nBody\n\n:::'}</ChatMarkdown>,
+    );
+    expect(html).toContain(":::note{title=");
+    expect(html).toContain("Nope");
+    expect(html).toContain("Body");
+  });
+});
+
 describe("native markdown page links", () => {
   it("draws a page link as a chip that opens the page, or as its title without a handler", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);

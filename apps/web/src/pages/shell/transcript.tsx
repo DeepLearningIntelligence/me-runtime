@@ -1,8 +1,10 @@
 import { i18n } from "@lingui/core";
 import { useLingui } from "@lingui/react/macro";
+import { DEFAULT_CONNECTOR_POLICY } from "@rakazo/adapters/connector-allowlist";
 import type {
   BotAvatarSet,
   ComputerReleaseReason,
+  ConnectorPolicy,
   LoginFieldInput,
   MessageReaction,
   ThreadMessage,
@@ -70,6 +72,7 @@ export const Transcript = memo(function Transcript({
   transcript,
   meId,
   showToolActivity,
+  connectorPolicy = DEFAULT_CONNECTOR_POLICY,
   olderCursor,
   unreadAfterSeq,
   loadingOlder,
@@ -113,6 +116,8 @@ export const Transcript = memo(function Transcript({
   transcript: FoldedTranscript<ThreadMessage>;
   meId?: string;
   showToolActivity: boolean;
+  /** ME_CONNECTOR_ALLOWLIST and ME_CONNECTOR_DENYLIST from bootstrap; absent uses the default deny list. */
+  connectorPolicy?: ConnectorPolicy;
   olderCursor: number | null;
   /** The seq read up to when this chat opened; null when nothing was unread. */
   unreadAfterSeq: number | null;
@@ -659,6 +664,7 @@ export const Transcript = memo(function Transcript({
                       onOpenImportSetup={onOpenImportSetup}
                       rpc={rpc}
                       showToolActivity={showToolActivity}
+                      connectorPolicy={connectorPolicy}
                       onReply={onReply}
                       onMarkUnread={onMarkUnread}
                       onReact={onReact}

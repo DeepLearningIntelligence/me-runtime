@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+
+import { GFIN_MCP_URL } from "@rakazo/adapters/gfin-endpoint";
 import type { ThreadMessage } from "@rakazo/contracts";
 import type { ComponentProps, ReactNode } from "react";
 import { act } from "react";
@@ -389,6 +391,88 @@ it("sends a settings Undo through the chat's space client", async () => {
   const undo = [...container.querySelectorAll("button")].find((b) => b.textContent === "Undo");
   await act(async () => undo?.click());
   expect(spaceRpc.bots.update).toHaveBeenCalledTimes(1);
+});
+
+const connectButton = () =>
+  [...container.querySelectorAll("button")].find((button) =>
+    button.textContent?.includes("Connect"),
+  );
+
+const appBlock = (provider: string, name: string) => ({
+  kind: "app_connect" as const,
+  connectorId: "composio",
+  provider,
+  name,
+  description: "",
+  logo: null,
+  status: "pending" as const,
+});
+
+it("denies Gmail by default while Slack stays offered", () => {
+  renderView("bot", [appBlock("gmail", "Gmail")]);
+  expect(container.textContent).not.toContain("Gmail");
+  expect(connectButton()).toBeUndefined();
+
+  renderView("bot", [appBlock("slack", "Slack")]);
+  expect(container.textContent).toContain("Slack");
+  expect(connectButton()?.textContent).toBe("Connect");
+});
+
+it("narrows to the allowlist and lets deny beat allow", () => {
+  const policy = { allowlist: ["slack"], denylist: [] };
+  renderView("bot", [appBlock("gmail", "Gmail")], { connectorPolicy: policy });
+  expect(container.textContent).not.toContain("Gmail");
+
+  renderView("bot", [appBlock("slack", "Slack")], { connectorPolicy: policy });
+  expect(container.textContent).toContain("Slack");
+
+  renderView("bot", [appBlock("gmail", "Gmail")], {
+    connectorPolicy: { allowlist: ["gmail"], denylist: ["gmail"] },
+  });
+  expect(container.textContent).not.toContain("Gmail");
+  expect(connectButton()).toBeUndefined();
+});
+
+it("renders a connect card when the policy clears the default deny list", () => {
+  renderView("bot", [appBlock("gmail", "Gmail")], {
+    connectorPolicy: { allowlist: null, denylist: [] },
+  });
+  expect(container.textContent).toContain("Gmail");
+  expect(connectButton()?.textContent).toBe("Connect");
+});
+
+it("renders no connect card for the provisioned Go Fund It Now server", () => {
+  renderView("bot", [
+    {
+      kind: "app_connect",
+      connectorId: "mcp",
+      provider: "gfin",
+      name: "Go Fund It Now",
+      description: "",
+      logo: null,
+      endpoint: GFIN_MCP_URL,
+      status: "pending",
+    },
+  ]);
+  expect(container.textContent).not.toContain("Go Fund It Now");
+  expect(connectButton()).toBeUndefined();
+});
+
+it("still renders a connect card for another MCP server", () => {
+  renderView("bot", [
+    {
+      kind: "app_connect",
+      connectorId: "mcp",
+      provider: "example",
+      name: "Example server",
+      description: "",
+      logo: null,
+      endpoint: "https://example.test/mcp",
+      status: "pending",
+    },
+  ]);
+  expect(container.textContent).toContain("Example server");
+  expect(connectButton()?.textContent).toBe("Connect");
 });
 
 it("stops a background helper from its saved running card, never a turn's live one", () => {

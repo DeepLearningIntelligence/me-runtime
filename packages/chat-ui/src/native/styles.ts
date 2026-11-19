@@ -126,6 +126,21 @@ export function markdownStyles(palette: ColorTokens) {
       borderLeftWidth: 3,
       gap: BLOCK_GAP,
     },
+    callout_info: {
+      borderLeftColor: palette.link,
+    },
+    callout_warning: {
+      borderLeftColor: palette.warning,
+    },
+    callout_success: {
+      borderLeftColor: palette.success,
+    },
+    callout_tip: {
+      borderLeftColor: palette.primary,
+    },
+    directive_body: {
+      gap: BLOCK_GAP,
+    },
     bullet_list_icon: {
       color: palette.faintForeground,
     },

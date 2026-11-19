@@ -200,6 +200,8 @@ export const MessageBlock = z.discriminatedUnion("kind", [
     name: z.string(),
     description: z.string(),
     logo: z.string().nullable(),
+    /** The MCP server endpoint when this card is for an MCP server rather than a Composio app. */
+    endpoint: z.string().nullable().optional(),
     status: z.enum(["pending", "connected"]),
   }),
   z.object({

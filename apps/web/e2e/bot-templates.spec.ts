@@ -9,7 +9,7 @@ test("a bot template previews what it adds, then creates a bot with a paused rou
   await signup(page, `templates-${Date.now()}@rakazo.test`, "password12", "Template Test");
   await completeOnboarding(page);
 
-  await page.getByRole("button", { name: "Connect apps", exact: true }).click();
+  await page.getByRole("button", { name: "Connect tools", exact: true }).click();
   await page
     .getByRole("dialog", { name: "Integrations", exact: true })
     .getByTestId("open-bot-templates")

@@ -346,8 +346,8 @@ describe("OIDC callbacks", () => {
     expect(response.headers.get("location")).toContain("error=account_not_linked");
     expect(rows("account")).toHaveLength(2);
   });
-  it.each([true, false, undefined])(
-    "refuses email collisions without any link (verified=%s)",
+  it.each([false, undefined])(
+    "refuses an unverified collision without any link (verified=%s)",
     async (verified) => {
       setup();
       const local = await request("/sign-up/email", {
@@ -368,6 +368,25 @@ describe("OIDC callbacks", () => {
       expect(rows("account")[0]?.providerId).toBe("credential");
     },
   );
+  it("signs a verified address into the password account that holds it", async () => {
+    setup();
+    const local = await request("/sign-up/email", {
+      email: "sso@example.test",
+      password: "test-password-123",
+      name: "Local",
+    });
+    expect(local.status).toBe(200);
+    cookies = "";
+    const response = await signIn({
+      sub: "different-subject",
+      email: "sso@example.test",
+      email_verified: true,
+    });
+    expect(response.headers.get("location")).toBe(`${origin}/app`);
+    expect(rows("user")).toHaveLength(1);
+    expect(new Set(rows("account").map((row) => row.userId)).size).toBe(1);
+    expect(rows("account").filter((row) => row.providerId === "oidc")).toHaveLength(1);
+  });
   it("stores provider tokens encrypted and still reads them", async () => {
     setup();
     await signIn();
@@ -467,9 +486,13 @@ describe("OIDC callbacks", () => {
         allowSignupBypass: false,
       },
     });
-    expect((await signIn()).headers.get("location")).toContain("error=account_not_linked");
+    // The same verified address is one person, so the new issuer adds a credential to the
+    // existing account. Subjects stay namespaced by issuer, so the rows never collide.
+    expect((await signIn()).headers.get("location")).toBe(`${origin}/app`);
     expect(rows("user")).toHaveLength(1);
-    expect(rows("account")).toHaveLength(1);
+    const oidc = rows("account").filter((row) => row.providerId === "oidc");
+    expect(oidc).toHaveLength(2);
+    expect(new Set(oidc.map((row) => row.accountId)).size).toBe(2);
   });
   it("links only through an authenticated link flow from a verified account", async () => {
     setup();
@@ -1598,48 +1621,47 @@ describe("directory accounts", () => {
     expect(refused.headers.get("location")).toContain("error=REGISTRATION_CLOSED");
   });
 
-  it.each([
-    [
-      "the provider email is unverified",
-      () => provisionedAccount(),
-      { sub: "subject-1", email: "sso@example.test", email_verified: false },
-    ],
-    [
-      // An emailed code leaves no login row, only the workspace the first sign-in made.
-      "someone already signed in to it",
-      () => signedInUsers.add(provisionedAccount()),
-      undefined,
-    ],
-    [
-      // Nothing is linked to an account while it is off, so turning it back on adds no login.
-      "the account is deactivated",
-      () => {
-        const userId = provisionedAccount();
-        rows("user").find((row) => row.id === userId)!.deactivatedAt = now();
-      },
-      undefined,
-    ],
-    [
-      "the directory adopted an account it did not make",
-      () => {
-        const userId = provisionedAccount();
-        directorySubjects.set(userId, null);
-      },
-      undefined,
-    ],
-  ])("does not claim the account when %s", async (_case, seed, claims) => {
+  it("refuses an unverified provider email rather than claiming the account", async () => {
     setup({ directoryProvisioning: true }, false);
-    seed();
-    const response = await signIn(claims);
+    provisionedAccount();
+    const response = await signIn({
+      sub: "subject-1",
+      email: "sso@example.test",
+      email_verified: false,
+    });
     expect(response.headers.get("location")).toContain("error=account_not_linked");
     expect(rows("account").filter((row) => row.providerId === "oidc")).toHaveLength(0);
   });
 
+  it("refuses a deactivated account even with a verified email", async () => {
+    setup({ directoryProvisioning: true }, false);
+    const userId = provisionedAccount();
+    rows("user").find((row) => row.id === userId)!.deactivatedAt = now();
+    const response = await signIn();
+    expect(response.headers.get("location")).toContain("error=ACCOUNT_DEACTIVATED");
+    expect(rows("account").filter((row) => row.providerId === "oidc")).toHaveLength(0);
+  });
+
+  it("signs a verified address into an account the directory adopted", async () => {
+    setup({ directoryProvisioning: true }, false);
+    const userId = provisionedAccount();
+    // Not claimable: the directory did not make this account, so only the verified
+    // address can sign into it.
+    directorySubjects.set(userId, null);
+    const response = await signIn();
+    expect(response.headers.get("location")).toBe(`${origin}/app`);
+    expect(rows("user")).toHaveLength(1);
+    expect(rows("account")).toEqual([expect.objectContaining({ userId, providerId: "oidc" })]);
+  });
+
   it("never links by email without directory provisioning", async () => {
     setup({}, false);
-    provisionedAccount();
+    const userId = provisionedAccount();
+    // Same rule everywhere: a verified address is the person, so it signs in rather than
+    // being refused or duplicated. Nothing is created.
     const response = await signIn();
-    expect(response.headers.get("location")).toContain("error=account_not_linked");
-    expect(rows("account")).toHaveLength(0);
+    expect(response.headers.get("location")).toBe(`${origin}/app`);
+    expect(rows("user")).toHaveLength(1);
+    expect(rows("account")).toEqual([expect.objectContaining({ userId, providerId: "oidc" })]);
   });
 });

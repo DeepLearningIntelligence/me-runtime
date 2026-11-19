@@ -1,5 +1,6 @@
 import { ph } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react/macro";
+import { DEFAULT_CONNECTOR_POLICY } from "@rakazo/adapters/connector-allowlist";
 import type { AgentSkillCatalogEntry } from "@rakazo/contracts";
 import {
   buildComposerMentionOptions,
@@ -164,6 +165,7 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
     maxAttachmentsPerMessage?: number;
   }>();
   const [needsModel, setNeedsModel] = useState<boolean>();
+  const [connectorPolicy, setConnectorPolicy] = useState(DEFAULT_CONNECTOR_POLICY);
   // Re-read on focus so returning from Models settings updates unsent missing-model messages.
   useFocusEffect(
     useCallback(() => {
@@ -173,6 +175,7 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
           if (cancelled) return;
           setUploadConfig(me);
           setNeedsModel(me.needsModel);
+          setConnectorPolicy(me.connectorPolicy ?? DEFAULT_CONNECTOR_POLICY);
         })
         .catch(() => undefined);
       return () => {
@@ -500,6 +503,7 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
     readSeq: readBoundary?.visit === readVisit.current.visit ? readBoundary.seq : null,
     markedUnreadMessageId,
     highlightedMessageId: scroll.highlightedMessageId,
+    connectorPolicy,
   });
 
   const workingBots =

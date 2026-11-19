@@ -2,6 +2,7 @@ import { useLingui } from "@lingui/react/macro";
 import { markdownCodeBlocks } from "@rakazo/chat-ui/native";
 import type {
   BotAvatarSet,
+  ConnectorPolicy,
   LoginFieldInput,
   MessageBlock,
   MessageReaction,
@@ -110,6 +111,7 @@ type MessageRowProps = {
   columnWidth: number;
   enableJump: boolean;
   index: number;
+  connectorPolicy?: ConnectorPolicy;
 };
 
 export const MessageRow = memo(function MessageRow({
@@ -148,6 +150,7 @@ export const MessageRow = memo(function MessageRow({
   columnWidth,
   enableJump,
   index,
+  connectorPolicy,
 }: MessageRowProps) {
   const tokens = useMobileTokens();
   const colorScheme = useResolvedAppearance();
@@ -468,6 +471,7 @@ export const MessageRow = memo(function MessageRow({
                 actionProps={actionProps}
                 doubleTapSurface={Boolean(likeMessage)}
                 onHelperToggle={actions.helperToggle}
+                connectorPolicy={connectorPolicy}
                 userBubble={userBubble}
               />
             </ThreadReadOnlyContext.Provider>

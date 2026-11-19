@@ -13,6 +13,7 @@ export function MarkdownChrome({ children }: { children: ReactNode }) {
       copied: t`Copied`,
       copyCode: t`Copy code`,
       copyDiagramSource: t`Copy diagram source`,
+      details: t`Details`,
       table: t`Table`,
       markdownTable: t`Markdown table`,
       row: t`Row`,

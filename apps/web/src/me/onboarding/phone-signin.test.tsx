@@ -171,7 +171,7 @@ it("opens WhatsApp in the same tab, so no navigation is silently dropped", async
 
 it("keeps the door across a page reload, and the restored door still verifies", async () => {
   startPhoneDoor.mockResolvedValue(DOOR);
-  verifyPhoneDoor.mockResolvedValue(undefined);
+  verifyPhoneDoor.mockResolvedValue({ whatsapp: "linked" });
 
   await render();
   await click("Continue");
@@ -190,6 +190,21 @@ it("keeps the door across a page reload, and the restored door still verifies", 
   await typeCode("654321");
   await click("Verify");
   expect(verifyPhoneDoor).toHaveBeenCalledWith({ nonce: DOOR.nonce, code: "654321" });
+  // The verify answer's link state rides with the journey to the flow.
+  expect(window.sessionStorage.getItem("me.whatsapp-link")).toBe("linked");
+  expect(window.sessionStorage.getItem("me.phone-door")).toBeNull();
+});
+
+it("stores no WhatsApp state when the verify refuses", async () => {
+  startPhoneDoor.mockResolvedValue(DOOR);
+  verifyPhoneDoor.mockRejectedValue(new DoorError("code_invalid"));
+
+  await render();
+  await click("Continue");
+  await typeCode("654321");
+  await click("Verify");
+  // A refused verify never claims a link state.
+  expect(window.sessionStorage.getItem("me.whatsapp-link")).toBeNull();
 });
 
 it("opens no restored door whose code has expired", async () => {

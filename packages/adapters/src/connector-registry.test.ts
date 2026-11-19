@@ -133,7 +133,118 @@ describe("ConnectorRegistry", () => {
     )) {
       events.push(event);
     }
-    expect(events).toEqual([{ type: "error", message: "unknown connector composio" }]);
+    expect(events).toEqual([
+      {
+        type: "error",
+        message: "connector_not_allowed: composio is not offered on this deployment.",
+      },
+    ]);
+  });
+
+  it("denies Gmail by default while Slack stays offered", async () => {
+    const composio = new StubConnector("composio", [
+      tool("GMAIL_SEND_EMAIL"),
+      tool("SLACK_POST_MESSAGE"),
+    ]);
+    const other = new StubConnector("installed", [tool("read")]);
+    const registry = new ConnectorRegistry([composio, other]);
+
+    const discovered = await registry.discoverTools(context);
+    expect(discovered.map((entry) => entry.name)).toEqual(["SLACK_POST_MESSAGE", "read"]);
+
+    const events: ConnectorEvent[] = [];
+    for await (const event of registry.execute(
+      {
+        tool: "SLACK_POST_MESSAGE",
+        args: {},
+        executionId: "execution",
+        route: { connectorId: "composio", toolName: "SLACK_POST_MESSAGE" },
+      },
+      context,
+    )) {
+      events.push(event);
+    }
+    expect(events).toEqual([
+      { type: "result", data: { connector: "composio", tool: "SLACK_POST_MESSAGE" } },
+    ]);
+    expect(composio.calls).toHaveLength(1);
+  });
+
+  it("offers no Composio app when the allowlist is explicitly empty", async () => {
+    const composio = new StubConnector("composio", [
+      tool("GMAIL_SEND_EMAIL"),
+      tool("SLACK_POST_MESSAGE"),
+    ]);
+    const other = new StubConnector("installed", [tool("read")]);
+    const registry = new ConnectorRegistry([composio, other], { allowlist: [], denylist: [] });
+
+    const discovered = await registry.discoverTools(context);
+    expect(discovered.map((entry) => entry.name)).toEqual(["read"]);
+  });
+
+  it("narrows to the allowlist", async () => {
+    const composio = new StubConnector("composio", [
+      tool("GMAIL_SEND_EMAIL"),
+      tool("SLACK_POST_MESSAGE"),
+    ]);
+    const registry = new ConnectorRegistry([composio], { allowlist: ["slack"], denylist: [] });
+
+    const discovered = await registry.discoverTools(context);
+    expect(discovered.map((entry) => entry.name)).toEqual(["SLACK_POST_MESSAGE"]);
+  });
+
+  it("lets deny beat allow", async () => {
+    const composio = new StubConnector("composio", [tool("SLACK_POST_MESSAGE")]);
+    const registry = new ConnectorRegistry([composio], {
+      allowlist: ["slack"],
+      denylist: ["slack"],
+    });
+
+    await expect(registry.discoverTools(context)).resolves.toEqual([]);
+  });
+
+  it("refuses a denied Composio connector before it is executed", async () => {
+    const composio = new StubConnector("composio", [tool("GMAIL_SEND_EMAIL")]);
+    const registry = new ConnectorRegistry([composio]);
+
+    const events: ConnectorEvent[] = [];
+    for await (const event of registry.execute(
+      {
+        tool: "GMAIL_SEND_EMAIL",
+        args: {},
+        executionId: "execution",
+        route: { connectorId: "composio", toolName: "GMAIL_SEND_EMAIL" },
+      },
+      context,
+    )) {
+      events.push(event);
+    }
+    expect(events).toEqual([
+      { type: "error", message: "connector_not_allowed: gmail is not offered on this deployment." },
+    ]);
+    expect(composio.calls).toEqual([]);
+  });
+
+  it("refuses a nested multi-execute action on a denied app", async () => {
+    const composio = new StubConnector("composio", [tool("COMPOSIO_MULTI_EXECUTE_TOOL")]);
+    const registry = new ConnectorRegistry([composio]);
+
+    const events: ConnectorEvent[] = [];
+    for await (const event of registry.execute(
+      {
+        tool: "COMPOSIO_MULTI_EXECUTE_TOOL",
+        args: { tools: [{ tool_slug: "GMAIL_SEND_EMAIL", arguments: {} }] },
+        executionId: "execution",
+        route: { connectorId: "composio", toolName: "COMPOSIO_MULTI_EXECUTE_TOOL" },
+      },
+      context,
+    )) {
+      events.push(event);
+    }
+    expect(events).toEqual([
+      { type: "error", message: "connector_not_allowed: gmail is not offered on this deployment." },
+    ]);
+    expect(composio.calls).toEqual([]);
   });
 });
 

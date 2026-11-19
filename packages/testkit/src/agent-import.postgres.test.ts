@@ -249,9 +249,15 @@ describeIntegration("agent import", () => {
     });
     expect({
       skills: await db.agentSkill.count({ where: owner }),
-      servers: await db.mcpServer.count({ where: owner }),
+      servers: (
+        await db.mcpServer.findMany({
+          where: owner,
+          select: { slug: true },
+          orderBy: { slug: "asc" },
+        })
+      ).map((row) => row.slug),
       routines: await db.routine.count({ where: owner }),
-    }).toEqual({ skills: 0, servers: 0, routines: 0 });
+    }).toEqual({ skills: 0, servers: ["gfin"], routines: 0 });
     // Only the model is left to set up: its provider has no key here, so it was not applied.
     const blocks = (
       await db.message.findMany({ where: { thread: { botId: bot.id } }, select: { blocks: true } })
@@ -420,7 +426,13 @@ describeIntegration("agent import", () => {
     });
     expect(blocked.status).toBe(400);
     expect(await db.bot.count({ where: owner })).toBe(botsBefore);
-    expect(await db.mcpServer.count({ where: owner })).toBe(0);
+    expect(
+      await db.mcpServer.findMany({
+        where: owner,
+        select: { slug: true },
+        orderBy: { slug: "asc" },
+      }),
+    ).toEqual([{ slug: "gfin" }]);
     expect(await db.routine.count({ where: owner })).toBe(0);
 
     // The space follows the account's models, so the main model is the account's.
@@ -470,15 +482,23 @@ describeIntegration("agent import", () => {
     // Like a server added in the MCP form with its credential left blank: nothing stored.
     expect(
       servers.map((row) => [row.slug, row.transport, row.headers, row.env, row.secretId]),
-    ).toEqual([["docs", "streamable_http", {}, {}, null]]);
+    ).toEqual([
+      ["docs", "streamable_http", {}, {}, null],
+      ["gfin", "streamable_http", {}, {}, null],
+    ]);
     const listed = await rpc<{ slug: string; hasSecret: boolean; headerKeys: string[] }[]>(
       app,
       cookie,
       "mcp/servers/list",
       {},
     );
-    expect(listed.map((row) => [row.slug, row.hasSecret, row.headerKeys])).toEqual([
+    expect(
+      listed
+        .sort((left, right) => left.slug.localeCompare(right.slug))
+        .map((row) => [row.slug, row.hasSecret, row.headerKeys]),
+    ).toEqual([
       ["docs", false, []],
+      ["gfin", false, []],
     ]);
     // Not given to the bot, and not probed or launched: an approval card asks the user first.
     expect(servers[0]!.assignments).toEqual([]);
@@ -613,9 +633,10 @@ describeIntegration("agent import", () => {
     const plain = await db.mcpServer.findFirstOrThrow({ where: { ...owner, slug: "docs-2" } });
     expect([plain.headers, plain.secretId]).toEqual([{}, null]);
 
-    // Another user sees none of it.
+    // Another user sees none of it; their own provisioned GFIN connection is the only server.
     const other = await signup(app, `import-settings-other-${stamp}@rakazo.test`, "Other");
-    expect(await rpc<unknown[]>(app, other, "mcp/servers/list", {})).toEqual([]);
+    const otherServers = await rpc<{ slug: string }[]>(app, other, "mcp/servers/list", {});
+    expect(otherServers.map((row) => row.slug)).toEqual(["gfin"]);
     expect(await rpc<unknown[]>(app, other, "models/credentials", {})).toEqual([]);
     expect((await raw(app, other, "routines/list", { botId: bot.id })).status).not.toBe(200);
   });
@@ -946,9 +967,13 @@ describeIntegration("agent import", () => {
         (row) => row.provider,
       ),
     ).toEqual(["openrouter"]);
-    const servers = await db.mcpServer.findMany({ where: owner });
+    const servers = await db.mcpServer.findMany({
+      where: owner,
+      orderBy: { slug: "asc" },
+    });
     expect(servers.map((row) => [row.slug, row.endpoint, row.headers, row.secretId])).toEqual([
       ["docs", "https://mcp.example.com/mcp", {}, null],
+      ["gfin", "https://app.gofunditnow.com/api/mcp", {}, null],
     ]);
     for (const row of await db.secret.findMany({ where: { userId: owner.userId } })) {
       expect(row.ciphertext).not.toContain("placeholder-");

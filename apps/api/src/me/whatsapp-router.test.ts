@@ -1,9 +1,9 @@
 import { createHmac } from "node:crypto";
 import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
-import type { WhatsAppRouterDeps } from "./whatsapp-router.js";
-import { EXPIRED_CODE_REPLY } from "./phone-signin/service.js";
 import { whatsAppSignInHandler } from "./phone-signin/index.js";
+import { EXPIRED_CODE_REPLY } from "./phone-signin/service.js";
+import type { WhatsAppRouterDeps } from "./whatsapp-router.js";
 import {
   createWhatsAppRouter,
   ME_NONCE_PATTERN,
@@ -124,7 +124,10 @@ describe("whatsapp router", () => {
     }));
     const router = createWhatsAppRouter({
       config: { whatsappAppSecret: APP_SECRET, whatsappBusinessNumber: BUSINESS_NUMBER },
-      signIn: whatsAppSignInHandler(prisma, { identityHashKey: "test-identity-key" }),
+      signIn: whatsAppSignInHandler(prisma, {
+        identityHashKey: "test-identity-key",
+        encryptionKey: "test-encryption-key",
+      }),
       messaging: { handleWebhook: vi.fn(), openDirectThread, sendToThread },
     });
 

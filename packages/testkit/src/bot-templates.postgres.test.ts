@@ -19,6 +19,7 @@ const describeIntegration = hasDb ? describe : describe.skip;
 
 const briefing = findBotTemplate("morning-briefing")!;
 const triage = findBotTemplate("inbox-triage")!;
+const prReviewer = findBotTemplate("pr-reviewer")!;
 
 describeIntegration("bot templates", () => {
   let app: App;
@@ -48,41 +49,34 @@ describeIntegration("bot templates", () => {
     rmSync(dataDir, { recursive: true, force: true });
   });
 
-  it("creates the bot, its skill and a paused routine, and asks only for missing apps", async () => {
+  it("creates the bot, its skill and a paused routine, and asks for the app it needs", async () => {
     const cookie = await signup(app, `template-${stamp}@rakazo.test`);
     const owner = await ownerOf(cookie);
-    // Gmail is already connected, so only the calendar is asked for.
-    await composio.begin(
-      { provider: "gmail", redirectUrl: "http://127.0.0.1.invalid/callback" },
-      {
-        operationId: "template-test",
-        traceId: "template-test",
-        ...owner,
-        signal: new AbortController().signal,
-      },
-    );
-
+    // Nothing is connected, so the template asks for GitHub before the import step.
     const before = await rpc<BotTemplateListing[]>(app, cookie, "bots/templates");
-    expect(before.find((item) => item.id === briefing.id)).toEqual({ ...briefing, botId: null });
+    expect(before.find((item) => item.id === prReviewer.id)).toEqual({
+      ...prReviewer,
+      botId: null,
+    });
 
     const { bot, created } = await rpc<Created>(app, cookie, "bots/createFromTemplate", {
-      templateId: briefing.id,
-      version: briefing.version,
+      templateId: prReviewer.id,
+      version: prReviewer.version,
     });
     expect(created).toBe(true);
     expect([bot.name, bot.description, bot.instructions]).toEqual([
-      briefing.name,
-      briefing.description,
-      briefing.instructions,
+      prReviewer.name,
+      prReviewer.description,
+      prReviewer.instructions,
     ]);
 
     const skills = await db.agentSkill.findMany({ where: owner });
     expect(skills.map((row) => [row.name, row.content, row.source])).toEqual([
-      ["Morning briefing", buildSkillMd(briefing.skills[0]!), "user"],
+      ["PR review", buildSkillMd(prReviewer.skills[0]!), "user"],
     ]);
     const routines = await db.routine.findMany({ where: { botId: bot.id } });
     expect(routines.map((row) => [row.name, row.prompt, row.crons, row.active])).toEqual([
-      ["Morning briefing", briefing.routines[0]!.prompt, ["30 7 * * 1-5"], false],
+      ["Review waiting pull requests", prReviewer.routines[0]!.prompt, ["0 9 * * 1-5"], false],
     ]);
     expect(routines[0]!.nextRunAt).toBeNull();
     // Nothing runs for the user: no intro, and no routine until they turn it on.
@@ -94,14 +88,20 @@ describeIntegration("bot templates", () => {
     });
     const blocks = messages.flatMap((message) => message.blocks as MessageBlock[]);
     expect(blocks.map((block) => block.kind)).toEqual(["app_connect", "import_setup"]);
-    expect(blocks[0]).toMatchObject({ kind: "app_connect", name: "Google Calendar" });
+    expect(blocks[0]).toMatchObject({ kind: "app_connect", name: "GitHub" });
     expect(blocks[1]).toEqual({
       kind: "import_setup",
-      items: [{ kind: "routine", routineId: routines[0]!.id, name: "Morning briefing" }],
+      items: [
+        {
+          kind: "routine",
+          routineId: routines[0]!.id,
+          name: "Review waiting pull requests",
+        },
+      ],
     });
 
     const after = await rpc<BotTemplateListing[]>(app, cookie, "bots/templates");
-    expect(after.find((item) => item.id === briefing.id)?.botId).toBe(bot.id);
+    expect(after.find((item) => item.id === prReviewer.id)?.botId).toBe(bot.id);
     expect(await db.agentImport.findMany({ where: owner, select: { source: true } })).toEqual([
       { source: "template" },
     ]);

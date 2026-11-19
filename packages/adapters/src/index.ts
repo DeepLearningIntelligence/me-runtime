@@ -69,6 +69,7 @@ export * from "./computer-update.js";
 export * from "./computer-workspace.js";
 export * from "./configured-sandbox.js";
 export * from "./connector-catalog.js";
+export * from "./connector-allowlist.js";
 export * from "./connector-registry.js";
 export * from "./createos-sandbox.js";
 export * from "./current-time.js";

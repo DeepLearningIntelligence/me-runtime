@@ -225,21 +225,6 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
     Boolean(
       await prisma.scimUser.findFirst({ where: { userId, active: true }, select: { id: true } }),
     );
-  /**
-   * The directory created this account and nobody has signed in to it yet. Every first
-   * sign-in, by any method, gives the account its workspace, so one without a workspace has
-   * never been used. Its first SSO sign-in with the same verified email claims it.
-   */
-  const claimable = async (userId: string) => {
-    if (!env.directoryProvisioning) return false;
-    const [subject, membership, user] = await Promise.all([
-      prisma.scimSubject.findUnique({ where: { userId }, select: { profileSourceId: true } }),
-      prisma.spaceMember.findFirst({ where: { userId }, select: { userId: true } }),
-      prisma.user.findUnique({ where: { id: userId }, select: { deactivatedAt: true } }),
-    ]);
-    // A deactivated account takes no new login, so nothing is linked while it is off.
-    return Boolean(subject?.profileSourceId) && !membership && !user?.deactivatedAt;
-  };
   // SSO-only deployments keep every email credential closed, codes included.
   const emailCodeSignIn = Boolean(env.email) && env.passwordAuth !== false;
   // SSO-only deployments keep the identity provider as the only way in.
@@ -282,7 +267,17 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
       APP_SCHEME_ORIGIN,
     ],
     account: {
-      accountLinking: { enabled: true, disableImplicitLinking: true, trustedProviders: [] },
+      // Same address, same person: an identity provider that asserts a verified email may
+      // sign into the account that already holds it, and the validateUserInfo hook below
+      // is the gate that decides. Unverified claims still link nothing, because
+      // `trustedProviders` is empty and Better Auth requires the provider's own
+      // verification claim before it links implicitly.
+      accountLinking: {
+        enabled: true,
+        disableImplicitLinking: false,
+        requireLocalEmailVerified: false,
+        trustedProviders: [],
+      },
       encryptOAuthTokens: true,
     },
     // Store only a hash of identifiers that carry an emailed token. Other
@@ -357,11 +352,22 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
         const email = String(user.email ?? "").toLowerCase();
         if (isMessagingEmail(email)) return { error: "EMAIL_NOT_AVAILABLE" };
         if (source.action === "link-account") {
+          // A link request is an authenticated session on this deployment, so it needs the
+          // provider to have verified the address before anything attaches.
+          const linkRequested = Boolean((await getOAuthState())?.link);
+          const existing = await ctx.context.internalAdapter.findUserById(String(user.id));
+          // A deactivated account takes no new credential, and refusing here keeps the
+          // provider account from being written before the session check runs.
+          if (!existing || deactivated(existing)) return { error: "ACCOUNT_DEACTIVATED" };
+          if (!linkRequested) {
+            // Sign-in finding an account that already holds this address: same address,
+            // same user. Better Auth is the gate for the claim itself, refusing an
+            // unverified implicit link before this hook runs (`trustedProviders` is empty,
+            // so it requires the provider's own verification), and this allows only the
+            // case it let through.
+            return;
+          }
           if (!verified) return { error: "unable_to_link_account" };
-          // Without a link request, this is sign-in finding an account with the same email.
-          // Sign-in never links by email, except to claim an account the directory made.
-          if (!(await getOAuthState())?.link)
-            return (await claimable(String(user.id))) ? undefined : { error: "account_not_linked" };
           // Anyone can register an address, so linking waits for verification. Without email
           // nothing can verify; then only the account's own browser may link, since the
           // native authorization proxy can plant a link state in any other.

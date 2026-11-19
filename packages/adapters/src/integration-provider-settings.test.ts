@@ -1,6 +1,8 @@
 import type { AdapterContext, ManagedConnectorProvider } from "@rakazo/adapter-kit";
+import type { ConnectorPolicy } from "@rakazo/contracts";
 import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_CONNECTOR_POLICY } from "./connector-allowlist.js";
 import { InfisicalSecretStore } from "./infisical-secret-store.js";
 import {
   IntegrationProviderSettings,
@@ -16,7 +18,7 @@ const context: AdapterContext = {
   userId: "user",
   signal: new AbortController().signal,
 };
-function fixture() {
+function fixture(connectorPolicy: ConnectorPolicy = DEFAULT_CONNECTOR_POLICY) {
   const rows = new Map<string, { id: string; ciphertext: string }>();
   const prisma = {
     integrationProviderConfig: {
@@ -40,6 +42,7 @@ function fixture() {
     "test-identity",
     {},
     factory,
+    connectorPolicy,
   );
   return { rows, prisma, adapter, factory, secrets, settings };
 }
@@ -66,7 +69,7 @@ describe("integration provider settings", () => {
     });
   });
   it("lists connected plugin slugs for the user, or none before setup", async () => {
-    const f = fixture();
+    const f = fixture({ allowlist: null, denylist: [] });
     expect(await f.settings.listConnectedPluginSlugs("user-1")).toEqual([]);
     await f.settings.save({ provider: "composio", apiKey: "fake-plugin-key" }, context);
     vi.mocked(f.adapter.listConnectedExternalIds).mockResolvedValueOnce(["gmail"]);
@@ -74,6 +77,12 @@ describe("integration provider settings", () => {
     expect(f.adapter.listConnectedExternalIds).toHaveBeenLastCalledWith(
       expect.objectContaining({ userId: "user-1" }),
     );
+  });
+  it("leaves a connected app out of the run when the policy denies it", async () => {
+    const f = fixture();
+    await f.settings.save({ provider: "composio", apiKey: "fake-plugin-key" }, context);
+    vi.mocked(f.adapter.listConnectedExternalIds).mockResolvedValueOnce(["gmail", "slack"]);
+    expect(await f.settings.listConnectedPluginSlugs("user-1")).toEqual(["slack"]);
   });
   it("preserves working settings and hides provider error details on failed verification", async () => {
     const f = fixture();

@@ -1,7 +1,8 @@
 import { ph, t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react/macro";
+import { DEFAULT_CONNECTOR_POLICY } from "@rakazo/adapters/connector-allowlist";
 import { ChatMarkdown, MarkdownLongPressContext, withBlockMentions } from "@rakazo/chat-ui/native";
-import type { LoginFieldInput, MessageBlock } from "@rakazo/contracts";
+import type { ConnectorPolicy, LoginFieldInput, MessageBlock } from "@rakazo/contracts";
 import { artifactPreviewKind, isAttachmentAudioMimeType } from "@rakazo/contracts";
 import type { ChildBotBlock, PeerExchange } from "@rakazo/core";
 import {
@@ -18,6 +19,7 @@ import type { ComponentProps } from "react";
 import { memo, useContext, useMemo, useState } from "react";
 import type { TextProps } from "react-native";
 import { Alert, Pressable, Text, View } from "react-native";
+import { offeredAppConnectBlocks, offeredMcpApprovalBlocks } from "../../lib/app-connect";
 import { mobileTokens } from "../../lib/appearance";
 import type { MobileArtifactTarget } from "../../lib/artifact-open";
 import { openMobileArtifact } from "../../lib/artifact-open";
@@ -226,6 +228,7 @@ const MessageBubbleContent = memo(function MessageBubbleContent({
   actionProps,
   doubleTapSurface = false,
   userBubble,
+  connectorPolicy = DEFAULT_CONNECTOR_POLICY,
 }: {
   onHelperToggle?: MessageRowActions["helperToggle"];
   botId: string;
@@ -258,6 +261,7 @@ const MessageBubbleContent = memo(function MessageBubbleContent({
   actionProps: MessageActionProps;
   doubleTapSurface?: boolean;
   userBubble?: UserBubble;
+  connectorPolicy?: ConnectorPolicy;
 }) {
   const colorScheme = useResolvedAppearance();
   const tokens = withUserBubble(mobileTokens(), userBubble);
@@ -267,14 +271,8 @@ const MessageBubbleContent = memo(function MessageBubbleContent({
   const artifactTarget: MobileArtifactTarget = groupId ? { groupId } : { botId };
   const cardBotId = message.botId ?? botId;
   const computerBotId = message.botId ?? (groupId ? undefined : botId);
-  const appConnectBlocks = message.blocks.filter(
-    (block): block is Extract<MessageBlock, { kind: "app_connect" }> =>
-      block.kind === "app_connect",
-  );
-  const mcpApprovalBlocks = message.blocks.filter(
-    (block): block is Extract<MessageBlock, { kind: "mcp_approval" }> =>
-      block.kind === "mcp_approval",
-  );
+  const appConnectBlocks = offeredAppConnectBlocks(message.blocks, connectorPolicy);
+  const mcpApprovalBlocks = offeredMcpApprovalBlocks(message.blocks);
   const undoBlock = message.blocks.find(isUndoableChange);
   if (undoBlock?.kind === "ask") return <ChangeUndo block={undoBlock} />;
   const ask = message.blocks.find(

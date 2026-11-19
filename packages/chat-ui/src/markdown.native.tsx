@@ -12,6 +12,7 @@ import type { ChatMarkdownProps } from "./markdown";
 import { LinkFaviconsPausedContext, linkifyExplicitUrls } from "./markdown";
 import { InlineChipsContext } from "./native/chips";
 import { DiagramSurfaceContext } from "./native/code";
+import { chatDirectivePlugin } from "./native/directive-plugin";
 import { OpenLinkContext, useNativeLinkConfirm } from "./native/links";
 import { markTaskListItems } from "./native/lists";
 import { renderRules } from "./native/render-rules";
@@ -24,6 +25,7 @@ function keepMarkdownLinkToken(_url: string) {
 // One shared parser: the Markdown components memoize on its identity.
 const markdownParser = createMarkdownIt();
 markdownParser.validateLink = keepMarkdownLinkToken;
+markdownParser.use(chatDirectivePlugin);
 linkifyExplicitUrls(markdownParser);
 markTaskListItems(markdownParser);
 

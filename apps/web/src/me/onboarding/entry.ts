@@ -24,3 +24,30 @@ export function startedFromInvite(): boolean {
     return false;
   }
 }
+
+/**
+ * The WhatsApp link state the phone door's verify call returned. The state
+ * belongs to one sign-in journey, like the entry flag: the door screen saves
+ * it, the onboarding flow reads it once and clears it, so a later visit starts
+ * clean.
+ */
+
+const WHATSAPP_KEY = "me.whatsapp-link";
+
+export function rememberWhatsappLink(state: string): void {
+  try {
+    window.sessionStorage.setItem(WHATSAPP_KEY, state);
+  } catch {
+    // Blocked storage only loses the skip and the ending; onboarding still works.
+  }
+}
+
+export function takeWhatsappLink(): string | null {
+  try {
+    const state = window.sessionStorage.getItem(WHATSAPP_KEY);
+    window.sessionStorage.removeItem(WHATSAPP_KEY);
+    return state;
+  } catch {
+    return null;
+  }
+}

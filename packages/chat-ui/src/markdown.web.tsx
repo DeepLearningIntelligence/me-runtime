@@ -3,7 +3,9 @@ import {
   Component,
   createContext,
   Fragment,
+  lazy,
   memo,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -13,11 +15,13 @@ import {
 } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
+import remarkDirective from "remark-directive";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import type { HastNode } from "./table-utils";
 import "./markdown.web.css";
+import "./markdown-blocks.css";
 import "./markdown-table.css";
 import { droppedTableHtmlText } from "@rakazo/contracts";
 import { cssVariableName, pageIconBars } from "@rakazo/ui-tokens";
@@ -33,6 +37,10 @@ import {
   CopyTextFallback,
   useCopyText,
 } from "@rakazo/ui-web";
+import { Callout } from "./callout";
+import { remarkChatBlocks } from "./chat-blocks";
+import { Collapsible, CollapsibleOpenContext } from "./collapsible";
+import { calloutVariant } from "./directives";
 import { CheckIcon, CopyIcon, GlobeIcon, ImageIcon } from "./icons";
 import type { ChatMarkdownProps } from "./markdown";
 import {
@@ -104,19 +112,45 @@ function CopyButton({ read, label }: { read: () => string; label: string }) {
   );
 }
 
+const HighlightedCode = lazy(() => import("./highlight.web"));
+
 function CodeBlock({
   copyable,
   prose,
+  language,
+  code,
+  children,
   ...props
-}: React.ComponentPropsWithoutRef<"pre"> & { copyable: boolean; prose: boolean }) {
+}: React.ComponentPropsWithoutRef<"pre"> & {
+  copyable: boolean;
+  prose: boolean;
+  language: string;
+  code: string;
+}) {
   const copy = useMarkdownCopy();
   const preRef = useRef<HTMLPreElement>(null);
   // The parser ends a fence's code with a newline the author didn't write.
   const readCode = useCallback(() => (preRef.current?.textContent ?? "").replace(/\n$/, ""), []);
+  const badge = language && !prose && !isMermaidFence(language) ? language : undefined;
 
   return (
-    <div className="rk-chat-markdown-pre-wrap">
-      <pre {...props} className={prose ? "rk-chat-markdown-pre-prose" : undefined} ref={preRef} />
+    <div
+      className={
+        badge
+          ? "rk-chat-markdown-pre-wrap rk-chat-markdown-pre-wrap-labeled"
+          : "rk-chat-markdown-pre-wrap"
+      }
+    >
+      {badge ? <span className="rk-chat-markdown-language">{badge}</span> : null}
+      <pre {...props} className={prose ? "rk-chat-markdown-pre-prose" : undefined} ref={preRef}>
+        {badge ? (
+          <Suspense fallback={<code>{code}</code>}>
+            <HighlightedCode code={code} language={badge} />
+          </Suspense>
+        ) : (
+          children
+        )}
+      </pre>
       {copyable ? <CopyButton read={readCode} label={copy.copyCode} /> : null}
     </div>
   );
@@ -124,6 +158,9 @@ function CodeBlock({
 
 /** Original markdown while streaming, before any display-only closing fence is appended. */
 const StreamingSourceContext = createContext<string | undefined>(undefined);
+
+/** Where this block starts in the message, so its blocks keep state by source offset. */
+const MarkdownBlockOffsetContext = createContext(0);
 
 function codeElement(node: MarkdownHast | undefined) {
   return node?.children?.find((child) => child.tagName === "code");
@@ -186,7 +223,13 @@ function MarkdownPre({
   const prose = diagram === undefined && isProseFence(fenceLanguage(node));
   // An empty fence has nothing to copy.
   const codeBlock = (
-    <CodeBlock {...props} copyable={/\S/.test(codeText(codeElement(node)))} prose={prose} />
+    <CodeBlock
+      {...props}
+      copyable={/\S/.test(codeText(codeElement(node)))}
+      prose={prose}
+      language={fenceLanguage(node)}
+      code={codeText(codeElement(node))}
+    />
   );
   if (diagram === undefined) return codeBlock;
   // Parser offsets identify the fence inside quotes and lists too. Inspect the original source,
@@ -669,8 +712,39 @@ export function PageIcon({ className }: { className?: string }) {
   );
 }
 
+function MarkdownDiv({
+  node,
+  children,
+}: React.ComponentPropsWithoutRef<"div"> & { node?: MarkdownHast }) {
+  const variant = node?.properties?.dataCallout;
+  if (typeof variant !== "string") return <div>{children}</div>;
+  return (
+    <Callout variant={calloutVariant(variant)} title={hastString(node?.properties?.dataTitle)}>
+      {children}
+    </Callout>
+  );
+}
+
+function MarkdownDetails({
+  node,
+  children,
+}: React.ComponentPropsWithoutRef<"details"> & { node?: MarkdownHast }) {
+  const blockOffset = useContext(MarkdownBlockOffsetContext);
+  const offset = node?.position?.start?.offset;
+  return (
+    <Collapsible
+      id={String(blockOffset + (offset ?? 0))}
+      title={hastString(node?.properties?.dataTitle)}
+    >
+      {children}
+    </Collapsible>
+  );
+}
+
 const components: Components = {
   a: MarkdownAnchor,
+  div: MarkdownDiv,
+  details: MarkdownDetails,
   img({ node: _node, src, alt, title }) {
     return (
       <MarkdownImage src={typeof src === "string" ? src : undefined} alt={alt} title={title} />
@@ -741,7 +815,7 @@ export function LinkifiedText({
   );
 }
 
-const remarkPlugins = [remarkGfm];
+const remarkPlugins = [remarkGfm, remarkDirective, remarkChatBlocks];
 const rehypePlugins = [preserveSkippedTableText];
 
 // MarkdownImage decides what an image source may do, so it receives the source as written.
@@ -754,25 +828,29 @@ function urlTransform(url: string, key: string) {
 const MarkdownBlock = memo(function MarkdownBlock({
   source,
   streaming,
+  offset,
 }: {
   source: string;
   streaming: boolean;
+  offset: number;
 }) {
   const parsed = streaming ? closeUnterminatedFence(source) : source;
   return (
-    <StreamingSourceContext.Provider value={streaming ? source : undefined}>
-      <MarkdownTableSourceContext.Provider value={parsed}>
-        <ReactMarkdown
-          components={components}
-          remarkPlugins={remarkPlugins}
-          rehypePlugins={rehypePlugins}
-          skipHtml
-          urlTransform={urlTransform}
-        >
-          {parsed}
-        </ReactMarkdown>
-      </MarkdownTableSourceContext.Provider>
-    </StreamingSourceContext.Provider>
+    <MarkdownBlockOffsetContext.Provider value={offset}>
+      <StreamingSourceContext.Provider value={streaming ? source : undefined}>
+        <MarkdownTableSourceContext.Provider value={parsed}>
+          <ReactMarkdown
+            components={components}
+            remarkPlugins={remarkPlugins}
+            rehypePlugins={rehypePlugins}
+            skipHtml
+            urlTransform={urlTransform}
+          >
+            {parsed}
+          </ReactMarkdown>
+        </MarkdownTableSourceContext.Provider>
+      </StreamingSourceContext.Provider>
+    </MarkdownBlockOffsetContext.Provider>
   );
 });
 
@@ -781,7 +859,7 @@ const MarkdownBlock = memo(function MarkdownBlock({
 type SourceBlock = { start: number; source: string; type: string; key: string };
 type SplitSource = { text: string; blocks: SourceBlock[] };
 
-const blockParser = unified().use(remarkParse).use(remarkGfm);
+const blockParser = unified().use(remarkParse).use(remarkGfm).use(remarkDirective);
 // Link and footnote definitions apply to the whole document, so such text is never split.
 const definition = /\]:/;
 
@@ -843,32 +921,51 @@ export const ChatMarkdown = memo(function ChatMarkdown({
   }, [children, split]);
 
   const inlineChips = useMemo(() => ({ renderMention, onOpenPage }), [renderMention, onOpenPage]);
+  const [openBlocks, setOpenBlocks] = useState<ReadonlySet<string>>(() => new Set());
+  const collapsible = useMemo(
+    () => ({
+      open: (id: string) => openBlocks.has(id),
+      toggle: (id: string) =>
+        setOpenBlocks((current) => {
+          const next = new Set(current);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return next;
+        }),
+    }),
+    [openBlocks],
+  );
   return (
     <ConfirmLinkContext.Provider value={request}>
       <InlineChipsContext.Provider value={inlineChips}>
-        <div
-          className={streaming ? "rk-chat-markdown rk-chat-markdown-streaming" : "rk-chat-markdown"}
-        >
-          <LinkFaviconsPausedContext.Provider value={streaming}>
-            <PlainTextOnFailure text={children}>
-              {blocks ? (
-                blocks.map((block, index) => (
-                  <Fragment key={block.key}>
-                    {/* The line break react-markdown puts between blocks, so the DOM matches. */}
-                    {index > 0 ? "\n" : null}
-                    <MarkdownBlock
-                      source={block.source}
-                      streaming={streaming && index === blocks.length - 1}
-                    />
-                  </Fragment>
-                ))
-              ) : (
-                <MarkdownBlock source={children} streaming={streaming} />
-              )}
-            </PlainTextOnFailure>
-          </LinkFaviconsPausedContext.Provider>
-          {streaming ? <span aria-hidden="true" className="rk-chat-markdown-cursor" /> : null}
-        </div>
+        <CollapsibleOpenContext.Provider value={collapsible}>
+          <div
+            className={
+              streaming ? "rk-chat-markdown rk-chat-markdown-streaming" : "rk-chat-markdown"
+            }
+          >
+            <LinkFaviconsPausedContext.Provider value={streaming}>
+              <PlainTextOnFailure text={children}>
+                {blocks ? (
+                  blocks.map((block, index) => (
+                    <Fragment key={block.key}>
+                      {/* The line break react-markdown puts between blocks, so the DOM matches. */}
+                      {index > 0 ? "\n" : null}
+                      <MarkdownBlock
+                        source={block.source}
+                        streaming={streaming && index === blocks.length - 1}
+                        offset={block.start}
+                      />
+                    </Fragment>
+                  ))
+                ) : (
+                  <MarkdownBlock source={children} streaming={streaming} offset={0} />
+                )}
+              </PlainTextOnFailure>
+            </LinkFaviconsPausedContext.Provider>
+            {streaming ? <span aria-hidden="true" className="rk-chat-markdown-cursor" /> : null}
+          </div>
+        </CollapsibleOpenContext.Provider>
       </InlineChipsContext.Provider>
       {dialog}
     </ConfirmLinkContext.Provider>
