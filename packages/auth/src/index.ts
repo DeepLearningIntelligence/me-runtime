@@ -593,27 +593,15 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
           requireEmailVerification = policy.allowlist.length > 0;
         }
         const { findSession, updateUser } = ctx.context.internalAdapter;
-        // An SSO sign-in may find an account the directory made; validateUserInfo decides.
-        const directoryClaim = Boolean(env.directoryProvisioning) && isOidcCallback(ctx);
         // Return a request-local override; mutating the shared auth options
         // would leak a concurrent request's policy into another signup.
         return {
           context: {
             context: {
-              ...(policy || directoryClaim
+              ...(policy
                 ? {
                     options: {
-                      ...(policy ? { emailAndPassword: { requireEmailVerification } } : {}),
-                      ...(directoryClaim
-                        ? {
-                            account: {
-                              accountLinking: {
-                                disableImplicitLinking: false,
-                                requireLocalEmailVerified: false,
-                              },
-                            },
-                          }
-                        : {}),
+                      emailAndPassword: { requireEmailVerification },
                     },
                   }
                 : {}),
