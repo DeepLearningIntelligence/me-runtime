@@ -148,7 +148,9 @@ type FollowUpRoutine = {
   followUp: unknown;
 };
 
-type FollowUpDeps = Pick<ExecutorDeps, "prisma" | "jobs" | "events" | "now">;
+type FollowUpDeps = Pick<ExecutorDeps, "prisma" | "jobs" | "now"> & {
+  events: Pick<ExecutorDeps["events"], "append">;
+};
 
 function logSilent(routineId: string, itemId: string, reason: FollowUpSilenceReason | string) {
   getLogger().info("follow_up.silent", {
