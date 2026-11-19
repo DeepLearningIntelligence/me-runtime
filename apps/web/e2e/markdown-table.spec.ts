@@ -356,6 +356,33 @@ test("wide tables scroll inside a focusable card region", async ({ page }) => {
     .toBeGreaterThan(0);
 });
 
+test.describe("narrow message container", () => {
+  test.use({ viewport: { width: 375, height: 800 } });
+
+  test("a wide table scrolls inside its own container without widening the message", async ({
+    page,
+  }) => {
+    await page.goto(`${fixture}?wide=1`);
+    const card = page.getByTestId("table-card");
+    const scroll = card.locator(":scope > .rk-table-scroll");
+    const message = page.getByTestId("table-fixture");
+    await expect(scroll).toBeVisible();
+
+    const table = await scroll.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    expect(table.scrollWidth).toBeGreaterThan(table.clientWidth);
+
+    const bubble = await message.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    expect(bubble.clientWidth).toBeLessThanOrEqual(375);
+    expect(bubble.scrollWidth).toBeLessThanOrEqual(bubble.clientWidth + 1);
+  });
+});
+
 test("sorting announces the new order and disambiguates header labels", async ({ page }) => {
   await page.goto(`${fixture}?dup-cols=1`);
   const card = page.getByTestId("table-card");
