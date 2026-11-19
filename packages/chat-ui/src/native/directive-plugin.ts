@@ -24,14 +24,6 @@ function lineAt(state: BlockState, line: number): string {
   return state.src.slice(state.bMarks[line]! + state.tShift[line]!, state.eMarks[line]);
 }
 
-/** The line that closes the directive opened at `from`, or -1 when it is still being written. */
-function closingLine(state: BlockState, from: number, endLine: number): number {
-  const lines: string[] = [];
-  for (let line = from; line < endLine; line += 1) lines.push(lineAt(state, line));
-  const close = directiveCloseLine(lines, 0);
-  return close === -1 ? -1 : from + close;
-}
-
 function directiveTitle(name: string, attributes: Record<string, string>): string {
   if (attributes.title?.trim()) return attributes.title;
   if (name === "callout") {
@@ -51,8 +43,11 @@ function directiveRule(
   const open = directiveOpen(lineAt(state, startLine));
   if (!open || (open.name !== "callout" && open.name !== "details")) return false;
   if (silent) return true;
-  const close = closingLine(state, startLine + 1, endLine);
-  if (close === -1) return false;
+  const body: string[] = [];
+  for (let line = startLine + 1; line < endLine; line += 1) body.push(lineAt(state, line));
+  const bodyClose = directiveCloseLine(body, 0);
+  if (bodyClose === -1) return false;
+  const close = startLine + 1 + bodyClose;
 
   const previousLineMax = state.lineMax;
   const previousParentType = state.parentType;
