@@ -23,6 +23,7 @@ import { getLogger } from "@rakazo/logging";
 import { sanitizedError } from "@rakazo/logging/monitoring";
 import { protectedComputerLifecycleRefusal } from "./desktop-command-guard.js";
 import type { ExecutorDeps } from "./executor-deps.js";
+import { wakeFollowUp } from "./follow-up.js";
 import { routineRunModelPin } from "./model-selection.js";
 import { findPendingRoutineTick, routineTimerNonce } from "./routine-coalescing.js";
 import { nextRoutineWatchAt, parseRoutineWatch, tickRoutineWatch } from "./routine-watch.js";
@@ -195,6 +196,23 @@ export async function wakeRoutine(deps: ExecutorDeps, routineId: string, schedul
       })
     : null;
   const thread = targetThread ?? bot.thread;
+  // A follow-up has its own delivery gate; it never reaches the ordinary routine claim.
+  if (
+    await wakeFollowUp(
+      deps,
+      {
+        id: routine.id,
+        spaceId: routine.spaceId,
+        botId: routine.botId,
+        userId: routine.userId,
+        prompt: routine.prompt,
+        followUp: routine.followUp,
+      },
+      { scheduledAt, threadId: thread.id },
+    )
+  ) {
+    return;
+  }
   // A change trigger checks first, without a model; only news becomes a run.
   const watchTick =
     routine.watch == null

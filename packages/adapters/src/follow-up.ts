@@ -138,7 +138,7 @@ type FollowUpRoutine = {
   followUp: unknown;
 };
 
-type FollowUpDeps = Pick<ExecutorDeps, "prisma" | "jobs" | "events">;
+type FollowUpDeps = Pick<ExecutorDeps, "prisma" | "jobs" | "events" | "now">;
 
 function logSilent(routineId: string, itemId: string, reason: FollowUpSilenceReason | string) {
   getLogger().info("follow_up.silent", {
@@ -160,7 +160,7 @@ export async function wakeFollowUp(
 ): Promise<boolean> {
   const state = parseFollowUpState(routine.followUp);
   if (!state) return false;
-  const now = input.now ?? new Date();
+  const now = input.now ?? deps.now?.() ?? new Date();
   const [item, preference, user, bot] = await Promise.all([
     deps.prisma.scratchpadItem.findFirst({
       where: { id: state.itemId, spaceId: routine.spaceId, botId: routine.botId },

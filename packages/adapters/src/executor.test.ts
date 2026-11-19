@@ -1626,10 +1626,11 @@ describe("userTurnInstructions", () => {
       }).filter(Boolean)[1];
     const offered = toolLine(true);
     expect(offered).toContain(
-      "(not reminders — those are schedule_*). Do not wait to be asked about open loops.",
+      "(not reminders — those are schedule_*). When something is left open",
     );
+    expect(offered).toContain("set it only if they agree");
+    expect(offered).toContain("pass followUpItemId");
     expect(offered).toContain("stays silent if it is done");
-    expect(offered).toContain("complete it and schedule_cancel its follow-up");
     expect(toolLine(false)).toBe(computerLine);
     expect(toolLine()).toBe(computerLine);
   });

@@ -250,12 +250,12 @@ function scratchpadClause(disabled?: ReadonlySet<string>): string | undefined {
 }
 
 /**
- * Open loops get one follow-up the bot sets itself. The follow-up runs as a routine, which
- * cannot see the chat, so the scratchpad item is what tells it whether the loop has closed;
- * the item keeps the routine's id so closing the loop cancels it and a later turn sees it.
+ * Open loops get one follow-up the bot sets itself, and only after the person agrees. The
+ * follow-up runs as a routine, which cannot see the chat, so the scratchpad item is what tells
+ * it whether the loop has closed; the item id is what ties the two together.
  */
 const FOLLOW_UP_INSTRUCTION =
-  "Do not wait to be asked about open loops. When something is left open until a known time, you may schedule_create one one-shot follow-up for then that checks the scratchpad item and stays silent if it is done, and record the follow-up's routineId in that item's notes. When the item is resolved, complete it and schedule_cancel its follow-up. Never follow up on something the user declined.";
+  "When something is left open with the person, you may offer one follow-up and set it only if they agree. Set it with schedule_create as one one-shot run at the time they choose and pass followUpItemId for the open scratchpad item; the run checks that item and stays silent if it is done. Never follow up on something they declined, and never set a second follow-up for the same item.";
 
 function spawnBotClause(disabled?: ReadonlySet<string>): string | undefined {
   if (!builtinOffered(disabled, "spawn_bot")) return undefined;

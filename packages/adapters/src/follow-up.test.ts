@@ -1,3 +1,4 @@
+import { ONCE_ROUTINE_CRON } from "@rakazo/core";
 import type { PrismaClient } from "@rakazo/db";
 import * as Logging from "@rakazo/logging";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +16,7 @@ import {
   parseFollowUpState,
   wakeFollowUp,
 } from "./follow-up.js";
+import { wakeRoutine } from "./run-routines.js";
 
 const ARMED_AT = new Date("2026-11-19T08:00:00Z");
 const SEEN_AT = new Date("2026-11-19T08:00:00Z");
@@ -98,7 +100,9 @@ describe("follow-up silence reasons", () => {
   });
 
   it("reads quiet hours and the day boundary in the person's zone", () => {
-    expect(minuteOfLocalDay(new Date("2026-11-19T23:30:00Z"), "Pacific/Auckland")).toBe(12 * 60 + 30);
+    expect(minuteOfLocalDay(new Date("2026-11-19T23:30:00Z"), "Pacific/Auckland")).toBe(
+      12 * 60 + 30,
+    );
     expect(localDayStart(new Date("2026-11-19T12:00:00Z"), "Pacific/Auckland").toISOString()).toBe(
       "2026-11-19T11:00:00.000Z",
     );
@@ -134,6 +138,7 @@ describe("the follow-up turn instruction", () => {
 describe("follow-up delivery", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("delivers once across a retried wake", async () => {
@@ -210,6 +215,14 @@ describe("follow-up delivery", () => {
       expect.objectContaining({ "followUp.reason": "dismissed" }),
     );
   });
+
+  it("reaches the gate from the routine scheduler", async () => {
+    vi.useFakeTimers({ now: NOW });
+    const harness = wakeHarness();
+    await wakeRoutine(harness.deps, "routine-1", SCHEDULED_AT.toISOString());
+    expect(harness.runs).toHaveLength(1);
+    expect(harness.enqueued).toHaveLength(1);
+  });
 });
 
 function wakeHarness(
@@ -255,8 +268,15 @@ function wakeHarness(
           : { followUpDailyCap: options.followUpDailyCap }),
       }),
     },
-    user: { findUnique: async () => ({ timezone: "UTC" }) },
-    bot: { findUnique: async () => ({ dailyCheckIns: !options.optedOut }) },
+    user: { findUnique: async () => ({ timezone: "UTC", deactivatedAt: null }) },
+    bot: {
+      findUnique: async () => ({
+        dailyCheckIns: !options.optedOut,
+        archivedAt: null,
+        thread: { id: "thread-1" },
+      }),
+    },
+    thread: { findFirst: async () => null },
     run: {
       count: async () => options.deliveriesToday ?? runs.length,
       create: async ({ data }: { data: { clientNonce: string } }) => {
@@ -274,6 +294,14 @@ function wakeHarness(
       },
     },
     routine: {
+      findUnique: async () => ({
+        ...row,
+        space: { deletingAt: null },
+        crons: [ONCE_ROUTINE_CRON],
+        watch: null,
+        name: "Signed lease follow-up",
+        threadId: null,
+      }),
       updateMany: async ({
         where,
         data,
@@ -284,8 +312,7 @@ function wakeHarness(
         const matches =
           row.id === where.id &&
           (where.active === undefined || row.active === where.active) &&
-          (where.nextRunAt === undefined ||
-            row.nextRunAt?.getTime() === where.nextRunAt.getTime());
+          (where.nextRunAt === undefined || row.nextRunAt?.getTime() === where.nextRunAt.getTime());
         if (!matches) return { count: 0 };
         Object.assign(row, data);
         return { count: 1 };
@@ -295,6 +322,7 @@ function wakeHarness(
   } as unknown as PrismaClient;
   const deps = {
     prisma,
+    now: () => options.now ?? NOW,
     jobs: {
       enqueue: async (job: { payload: { runId: string } }) => {
         enqueued.push(job.payload.runId);
@@ -307,8 +335,9 @@ function wakeHarness(
         events.push(event);
       },
     },
-  } as unknown as Parameters<typeof wakeFollowUp>[0];
+  } as unknown as Parameters<typeof wakeRoutine>[0];
   return {
+    deps,
     runs,
     tasks,
     enqueued,
