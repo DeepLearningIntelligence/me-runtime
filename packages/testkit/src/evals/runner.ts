@@ -212,7 +212,7 @@ export async function runTrial(
           endpoint: hostedApps[index]!.endpoint,
           secret: hostedApps[index]!.token,
         });
-      for (const provider of scenario.connections ?? ["GMAIL", "CRM", "GITHUB"])
+      for (const provider of scenario.connections ?? ["SLACK", "CRM", "GITHUB"])
         await rpc(app, cookie, "connections/begin", {
           connectorId: "composio",
           provider,
