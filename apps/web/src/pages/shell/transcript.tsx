@@ -38,6 +38,7 @@ import {
 } from "react";
 import { ActiveBotGlyph } from "../../components/ai/CollaborationMarker";
 import { VoiceChatCard } from "../../components/call/VoiceChatCard";
+import { NO_CONNECTOR_ALLOWLIST } from "../../lib/app-connect-visibility";
 import type { ArtifactTarget } from "../../lib/artifact-open";
 import { projectPageCards } from "../../lib/page-cards";
 import {
@@ -70,6 +71,7 @@ export const Transcript = memo(function Transcript({
   transcript,
   meId,
   showToolActivity,
+  connectorAllowlist = NO_CONNECTOR_ALLOWLIST,
   olderCursor,
   unreadAfterSeq,
   loadingOlder,
@@ -113,6 +115,8 @@ export const Transcript = memo(function Transcript({
   transcript: FoldedTranscript<ThreadMessage>;
   meId?: string;
   showToolActivity: boolean;
+  /** ME_CONNECTOR_ALLOWLIST from bootstrap; absent means no Composio app is offered. */
+  connectorAllowlist?: readonly string[];
   olderCursor: number | null;
   /** The seq read up to when this chat opened; null when nothing was unread. */
   unreadAfterSeq: number | null;
@@ -659,6 +663,7 @@ export const Transcript = memo(function Transcript({
                       onOpenImportSetup={onOpenImportSetup}
                       rpc={rpc}
                       showToolActivity={showToolActivity}
+                      connectorAllowlist={connectorAllowlist}
                       onReply={onReply}
                       onMarkUnread={onMarkUnread}
                       onReact={onReact}

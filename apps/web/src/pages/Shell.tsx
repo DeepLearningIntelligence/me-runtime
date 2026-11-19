@@ -44,6 +44,7 @@ import { CallCard, CallReturnBar } from "../components/call/CallCard";
 import { IncomingCall } from "../components/call/IncomingCall";
 import { PageLoading } from "../components/PageLoading";
 import { PageViewHost } from "../components/pages/PageViewHost";
+import { NO_CONNECTOR_ALLOWLIST } from "../lib/app-connect-visibility";
 import type { ArtifactTarget } from "../lib/artifact-open";
 import { authClient } from "../lib/auth";
 import { peekBootstrapSeed } from "../lib/bootstrap";
@@ -1104,6 +1105,7 @@ function SpaceShell() {
               markedUnreadMessageId={read.markedUnreadMessageId}
               transcript={transcript}
               showToolActivity={showToolActivity}
+              connectorAllowlist={bootstrapMe?.connectorAllowlist ?? NO_CONNECTOR_ALLOWLIST}
               olderCursor={activeSnapshot?.olderCursor ?? null}
               unreadAfterSeq={read.unreadAfterSeq}
               loadingOlder={loadingOlder}
