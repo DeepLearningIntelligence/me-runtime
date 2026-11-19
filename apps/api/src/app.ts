@@ -83,6 +83,7 @@ import {
   createAuth,
   createDirectory,
   isBlockedAuthPath,
+  PII_TUNNEL_TOKEN_MS,
 } from "@rakazo/auth";
 import type { Actor, AuthCapabilities } from "@rakazo/contracts";
 import {
@@ -153,6 +154,8 @@ import { marketingEmailRoutes, sendWelcomeEmail } from "./marketing-email.js";
 import { moveMcpArgsIntoSecrets } from "./mcp-args-migration.js";
 import { ensureGfinConnection } from "./me/gfin/service.js";
 import { mountPhoneSigninRoutes } from "./me/phone-signin/routes.js";
+import { mountPiiTunnelRoutes } from "./me/pii-tunnel/routes.js";
+import { piiTunnelUrl } from "./me/pii-tunnel/url.js";
 import { startMessagingRuntime } from "./messaging-runtime.js";
 import { monitoringRoutes } from "./monitoring.js";
 import { pluginSubmissionRoutes } from "./plugin-submissions.js";
@@ -631,6 +634,13 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     home,
     artifacts,
     secretStore: secrets,
+    issuePiiTunnelLink: async (userId: string) => {
+      const token = await auth.issuePIITunnelToken(userId);
+      return {
+        url: piiTunnelUrl(token),
+        expiresAt: new Date(Date.now() + PII_TUNNEL_TOKEN_MS),
+      };
+    },
     secretHttp: remoteConnectors,
     notifications,
     jobs,
@@ -907,6 +917,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   // The phone door answers before the auth library sees the request; it runs in
   // the system context above, like every other authentication path.
   mountPhoneSigninRoutes(app, { prisma, auth, env, clientIp: requestClientIp, jobs });
+  mountPiiTunnelRoutes(app, { prisma, auth, env, jobs, secretStore: secrets });
   if (directory) {
     app.on(["GET", "POST", "PUT", "PATCH", "DELETE"], "/api/auth/scim/v2/*", async (c) => {
       const changes: DirectoryAccountChange[] = [];

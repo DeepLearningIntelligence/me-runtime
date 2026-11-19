@@ -65,6 +65,8 @@ export interface ExecutorDeps {
   phoneCallRingSeconds?: number;
   /** Messaging surface; absent means zero identity queries and no chat prompts. */
   messaging?: { hasIdentity(botId: string): Promise<boolean> };
+  /** Issues a signed PII upload link for a person; absent makes me_pii_link refuse. */
+  issuePiiTunnelLink?: (userId: string) => Promise<{ url: string; expiresAt: Date }>;
   listConnectedPluginSlugs?: (userId: string) => Promise<string[]>;
   /** Builtin web_search / web_fetch. Defaults to keyless HTTP when omitted. */
   web?: WebProvider;

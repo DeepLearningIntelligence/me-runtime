@@ -40,6 +40,7 @@ export const BUILTIN_TOOL_NAMES = [
   "ask_user",
   "connect_app",
   "message_user",
+  "me_pii_link",
   "request_secret",
   "generate_secret",
   "list_secrets",

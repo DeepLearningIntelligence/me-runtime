@@ -48,6 +48,11 @@ import { hasRecentIdentityConfirmation, identityConfirmation } from "./identity-
 import type { OidcConfig } from "./oidc.js";
 import { isCurrentOidcAccount, oidcDiscovery } from "./oidc.js";
 import { passkeyRelyingParty } from "./passkey.js";
+import {
+  consumePIITunnelToken,
+  issuePIITunnelToken,
+  PII_TUNNEL_TOKEN_PREFIX,
+} from "./pii-tunnel-token.js";
 import type { TokenKey } from "./token-storage.js";
 import { encryptStoredOAuthTokens, openIdToken, sealIdToken } from "./token-storage.js";
 
@@ -63,6 +68,7 @@ export type { HomeDeletionReason } from "./home-deletion-email.js";
 export { homeDeletionEmail } from "./home-deletion-email.js";
 export type { OidcConfig } from "./oidc.js";
 export { passkeyRelyingParty } from "./passkey.js";
+export { PII_TUNNEL_TOKEN_MS } from "./pii-tunnel-token.js";
 export {
   integrationClaimConfirmEmail,
   pluginSubmissionAdminEmail,
@@ -289,6 +295,7 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
           "reset-password:": "hashed",
           "delete-account-": "hashed",
           [ACCOUNT_EXPORT_TOKEN_PREFIX]: "hashed",
+          [PII_TUNNEL_TOKEN_PREFIX]: "hashed",
         },
       },
     },
@@ -860,6 +867,10 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
       issueAccountExportToken((await auth.$context).internalAdapter, userId),
     consumeAccountExportToken: async (token: string) =>
       consumeAccountExportToken((await auth.$context).internalAdapter, token),
+    issuePIITunnelToken: async (userId: string) =>
+      issuePIITunnelToken((await auth.$context).internalAdapter, userId),
+    consumePIITunnelToken: async (token: string) =>
+      consumePIITunnelToken((await auth.$context).internalAdapter, token),
     disposeOidcDiscovery: () => discovery?.dispose(),
   });
 }
