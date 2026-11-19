@@ -35,6 +35,7 @@ export const READ_ONLY_AGENT_TOOLS = new Set([
   "skill_read",
   "web_search",
   "web_fetch",
+  "product_card",
   "service_search",
   "browser_snapshot",
   "list_secrets",

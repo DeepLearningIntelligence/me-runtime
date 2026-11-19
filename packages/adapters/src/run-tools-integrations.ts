@@ -9,6 +9,7 @@ import { redactConnectorPayload, sanitizeConnectorError } from "./connector-safe
 import { mcpAppViewArguments, mcpAppViewResult } from "./mcp-app.js";
 import { addMcpServerFromTool } from "./mcp-server-tool.js";
 import { serviceCallFromTool, serviceSearchFromTool } from "./paid-service-tools.js";
+import { productCardFromTool } from "./product-card-tool.js";
 import type { RunContext } from "./run-context.js";
 import { runScopedToolExecutionId } from "./run-effects.js";
 import { publishMessage } from "./run-messages.js";
@@ -165,6 +166,9 @@ export const integrationTools: ToolHandlers = {
     const { context } = ctx;
     const { args } = call;
     return call.finish(await webFetchFromTool(ctx.providers.web, context, args));
+  },
+  async product_card(ctx, call) {
+    return call.finish(await productCardFromTool(ctx, call));
   },
   async service_search(ctx, call) {
     const provider = ctx.providers.paidServices;

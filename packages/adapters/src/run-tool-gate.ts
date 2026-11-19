@@ -464,7 +464,9 @@ export async function gateToolCall(
   const repeatChecked =
     applied &&
     (!applied.duplicate || applied.effect.status === "intended") &&
-    !["web_fetch", "secret_request", "request_secret", "connect_app"].includes(name);
+    !["web_fetch", "product_card", "secret_request", "request_secret", "connect_app"].includes(
+      name,
+    );
   const deniedEarlier = repeatChecked
     ? (
         await deps.prisma.externalEffect.findMany({

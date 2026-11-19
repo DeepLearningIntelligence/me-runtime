@@ -30,7 +30,7 @@ vi.mock("@lingui/react/macro", () => ({
 }));
 
 import { connectMcpOauth } from "../../lib/mcp-connect";
-import { AppConnectCard, McpApprovalCard } from "./message-cards";
+import { AppConnectCard, McpApprovalCard, ProductCard } from "./message-cards";
 
 function popupFlow({ focused }: { focused: boolean }) {
   const channels: FakeChannel[] = [];
@@ -178,5 +178,41 @@ it("links OAuth failures in chat to the shared recovery guide without approving 
     expect(host.querySelector("button")?.disabled).toBe(false);
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+it("renders a product card from page facts and opens the product page", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        <ProductCard
+          block={{
+            kind: "product_card",
+            url: "https://shopstar.example/products/mini-backpack",
+            title: "Mini Backpack",
+            subtitle: "Shopstar",
+            price: "$49.99",
+            attributes: [{ k: "Color", v: "Cream" }],
+            imageUrl: "https://shopstar.example/images/mini-backpack.jpg",
+            source: "https://shopstar.example/products/mini-backpack",
+            verifiedAt: "2026-11-19T09:00:00.000Z",
+          }}
+        />,
+      ),
+    );
+    const card = host.querySelector('[data-testid="product-card"]') as HTMLAnchorElement;
+    expect(card.href).toBe("https://shopstar.example/products/mini-backpack");
+    expect(card.getAttribute("target")).toBe("_blank");
+    expect(card.textContent).toContain("Mini Backpack");
+    expect(card.textContent).toContain("Shopstar");
+    expect(card.textContent).toContain("Color: Cream");
+    expect(card.textContent).toContain("$49.99");
+    expect(card.textContent).toContain("Add to Cart");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
 });

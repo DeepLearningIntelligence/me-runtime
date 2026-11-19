@@ -671,6 +671,33 @@ const textStyles: Scenario = {
   ],
 };
 
+// A product card's image, drawn inline so the offline gallery needs no network.
+const PRODUCT_IMAGE = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="360"><rect width="480" height="360" fill="#e6e6e6"/><path d="M150 150h180v140H150z" fill="#b3b3b3"/><path d="M190 150c0-44 100-44 100 0" stroke="#8c8c8c" stroke-width="14" fill="none"/><rect x="150" y="242" width="180" height="48" fill="#c9c9c9"/></svg>',
+)}`;
+
+const productCard: Scenario = {
+  id: "product",
+  label: "Product card",
+  messages: [
+    user("Find me a mini backpack from Shopstar."),
+    bot([
+      {
+        kind: "product_card",
+        url: "https://shopstar.example/products/mini-backpack",
+        title: "Mini Backpack",
+        subtitle: "Shopstar",
+        price: "$49.99",
+        attributes: [{ k: "Color", v: "Cream" }],
+        imageUrl: PRODUCT_IMAGE,
+        source: "https://shopstar.example/products/mini-backpack",
+        verifiedAt: "2026-11-19T09:00:00.000Z",
+      },
+    ]),
+    say("Tap the card to open it on Shopstar."),
+  ],
+};
+
 const SCENARIOS: Scenario[] = [
   conversation,
   textStyles,
@@ -680,6 +707,7 @@ const SCENARIOS: Scenario[] = [
   working,
   team,
   rich,
+  productCard,
   calls,
 ];
 
