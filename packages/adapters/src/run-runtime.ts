@@ -165,8 +165,8 @@ export function createConnectorRuntime(
       ...integrationSettings
         .providers()
         .filter((provider) => !composio || provider.describe().id !== "composio"),
-      // The deployment-managed GFIN connection serves its closed public tool set only,
-      // in this process and in the worker alike; see gfin-connection.ts.
+      // The deployment-managed GFIN connection serves its classified tool table, in this
+      // process and in the worker alike; the row's credential picks the lane.
       guardConnectorTools(mcp, GFIN_TOOL_GUARD),
       ...(overrides.connectors ?? []),
     ],

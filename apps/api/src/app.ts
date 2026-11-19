@@ -503,18 +503,12 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       })
     : undefined;
   // The deployment's GFIN connection for every person, converged at workspace admission.
-  // Provisioning is off (named, once) until the house key or the provisioning endpoint is set.
-  const afterWorkspaceReady = env.gfin
-    ? async (user: { id: string }) => {
-        await ensureGfinConnection({ prisma, secrets, config: env.gfin }, user).catch((error) =>
-          getLogger().error("gfin connection provisioning failed", error),
-        );
-      }
-    : undefined;
-  if (!env.gfin)
-    getLogger().info(
-      "gfin connection provisioning is off: set ME_GFIN_HOUSE_KEY (or ME_GFIN_PROVISION_URL with ME_GFIN_PROVISION_TOKEN) to connect every person to Go Fund It Now",
+  // With no key it is the public connection; a key upgrades the same row in place.
+  const afterWorkspaceReady = async (user: { id: string }) => {
+    await ensureGfinConnection({ prisma, secrets, config: env.gfin }, user).catch((error) =>
+      getLogger().error("gfin connection provisioning failed", error),
     );
+  };
   const auth = createAuth(prisma, {
     directoryProvisioning: Boolean(directory),
     analytics,
