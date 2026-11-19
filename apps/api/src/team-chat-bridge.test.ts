@@ -4,12 +4,12 @@ import type {
   TeamChatInboundMessage,
   TeamChatSendRequest,
 } from "@rakazo/adapter-kit";
+import type { MessagingReceipts } from "@rakazo/adapters";
 import type { MessageBlock } from "@rakazo/contracts";
 import { userTurnMessageForRun } from "@rakazo/core";
 import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
 import { materializeCurrentTurnFiles } from "../../../packages/adapters/src/thread-artifacts.js";
-import type { MessagingReceipts } from "./messaging-receipts.js";
 import { TeamChatBridge } from "./team-chat-bridge.js";
 import { inboundDeliveryClientNonce, messagingWakeIdempotencyKey } from "./webhook-inbound.js";
 
@@ -2885,8 +2885,8 @@ describe("team chat bridge receipt", () => {
     });
 
     expect(acknowledge.mock.calls).toEqual([
-      ["slack:C1:1700000000.000100", "1700000000.000100", expect.any(Function)],
-      ["slack:D1:", "1700000000.000200", expect.any(Function)],
+      ["slack:C1:1700000000.000100", "1700000000.000100", "text", expect.any(Function)],
+      ["slack:D1:", "1700000000.000200", "text", expect.any(Function)],
     ]);
     expect(acknowledge.mock.invocationCallOrder[0]!).toBeLessThan(
       sendUserMessage.mock.invocationCallOrder[0]!,
@@ -2901,7 +2901,7 @@ describe("team chat bridge receipt", () => {
     await bridge.receive(inbound("1700000000.000400", "mention", "slack:C1:1700000000.000400"));
 
     expect(acknowledge.mock.calls).toEqual([
-      ["slack:C1:1700000000.000400", "1700000000.000400", expect.any(Function)],
+      ["slack:C1:1700000000.000400", "1700000000.000400", "text", expect.any(Function)],
     ]);
   });
 
@@ -2910,7 +2910,7 @@ describe("team chat bridge receipt", () => {
     const { bridge, rows } = receiptBridge(acknowledge);
 
     await bridge.receive(inbound("1700000000.000500", "mention", "slack:C1:1700000000.000500"));
-    const handled = acknowledge.mock.calls[0]![2];
+    const handled = acknowledge.mock.calls[0]![3];
     const row = rows.get("external-1700000000.000500")!;
 
     await expect(handled()).resolves.toBe(false);

@@ -1,6 +1,7 @@
 import type { JobPublisher, MessagingInboundMessage, SandboxProvider } from "@rakazo/adapter-kit";
 import { messagingDeliverJob, runContinueJob } from "@rakazo/adapter-kit";
-import { insertOutboundRows } from "@rakazo/adapters";
+import type { MessagingReceipts } from "@rakazo/adapters";
+import { insertOutboundRows, messagingInboundNonce } from "@rakazo/adapters";
 import type { MessageBlock } from "@rakazo/contracts";
 import { ATTACHMENT_MAX_COUNT, isAttachmentAudioMimeType } from "@rakazo/contracts";
 import type { MessagingCommand } from "@rakazo/core";
@@ -32,7 +33,6 @@ import {
 import { getLogger } from "@rakazo/logging";
 import type { InboundAttachmentStore } from "./inbound-attachments.js";
 import { storeInboundAttachments } from "./inbound-attachments.js";
-import type { MessagingReceipts } from "./messaging-receipts.js";
 import {
   MESSAGE_ROUTING_REARMED_REASON,
   MESSAGE_ROUTING_REASON,
@@ -214,11 +214,11 @@ async function handleDirectEvent(
     ],
     prompt: promptTextForAttachments(body, stored.artifacts),
     trigger: "messaging",
-    clientNonce: `messaging:${event.provider}:${event.handle}`,
+    clientNonce: messagingInboundNonce(event.provider, event.handle),
   });
   if (sent.runId) {
     const runId = sent.runId;
-    deps.acknowledge?.(event.threadId, event.handle, async () => {
+    deps.acknowledge?.(event.threadId, event.handle, event.medium ?? "text", async () => {
       const run = await deps.prisma.run.findUnique({
         where: { id: runId },
         select: { status: true, messagingMirroredAt: true },
@@ -958,7 +958,7 @@ async function handleChannelEvent(
         blocks: [block],
         prompt,
         trigger: "messaging",
-        clientNonce: `messaging:${event.provider}:${event.handle}`,
+        clientNonce: messagingInboundNonce(event.provider, event.handle),
       });
       if (sent.runId) {
         await deps.jobs.enqueue(runContinueJob(sent.runId)).catch((error) => {

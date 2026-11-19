@@ -147,12 +147,22 @@ describe("installed messaging isolation", () => {
     const f = fixture();
     await f.messaging.sendToThread({ threadId: "slack~a:C1:1.001", body: "reply" }, context);
     expect(f.sends).toHaveBeenCalledWith("token-a", { threadId: "slack:C1:1.001", body: "reply" });
-    await f.messaging.acknowledge("slack~a:C1:1.001", "Ta:1.001", context);
+    await f.messaging.acknowledge(
+      "slack~a:C1:1.001",
+      "Ta:1.001",
+      { kind: "reaction", emoji: "eyes" },
+      context,
+    );
     expect(f.receipts).toHaveBeenCalledWith("token-a", "slack:C1:1.001", "1.001");
     expect(f.surfaces).toHaveBeenCalledTimes(1);
-    await expect(f.messaging.acknowledge("slack~a:C1", "Tb:1.001", context)).rejects.toThrow(
-      "another workspace",
-    );
+    await expect(
+      f.messaging.acknowledge(
+        "slack~a:C1",
+        "Tb:1.001",
+        { kind: "reaction", emoji: "eyes" },
+        context,
+      ),
+    ).rejects.toThrow("another workspace");
   });
 
   it("rejects cross-space sends and unscoped Slack threads before constructing an adapter", async () => {

@@ -43,6 +43,7 @@ describe("emulated sendblue platform inbound", () => {
       transport: "iMessage",
       handle: "handle-dm-1",
       threadId: expect.stringMatching(/^sendblue:/),
+      medium: "text",
       isDirect: true,
       from: "+15551234567",
       fromLabel: null,
@@ -170,7 +171,7 @@ describe("emulated sendblue platform receipt", () => {
   it("acknowledges a DM with a typing indicator", async () => {
     const { emulator, surface } = createHarness();
     const threadId = await surface.openDirectThread("sendblue", "+15557654321", context);
-    await surface.acknowledge(threadId, "inbound-1", context);
+    await surface.acknowledge(threadId, "inbound-1", { kind: "typing" }, context);
 
     expect(emulator.typingIndicators).toEqual(["+15557654321"]);
   });

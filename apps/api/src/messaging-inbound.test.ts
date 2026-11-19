@@ -1,3 +1,4 @@
+import type { MessagingReceipts } from "@rakazo/adapters";
 import { ATTACHMENT_MAX_COUNT } from "@rakazo/contracts";
 import { SpaceDeletionInProgressError } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
@@ -7,7 +8,6 @@ import {
   teamChatSenderCanWakeMessageRoutines,
   wakeMessageRoutines,
 } from "./messaging-inbound.js";
-import type { MessagingReceipts } from "./messaging-receipts.js";
 import { inboundDeliveryClientNonce, messagingWakeIdempotencyKey } from "./webhook-inbound.js";
 
 const signupPolicy = { signupsEnabled: undefined, signupAllowlist: undefined };
@@ -1234,7 +1234,7 @@ describe("inbound receipt", () => {
     await handle(dmEvent);
 
     expect(deps.acknowledge.mock.calls).toEqual([
-      ["sendblue:dm-1", "handle-1", expect.any(Function)],
+      ["sendblue:dm-1", "handle-1", "text", expect.any(Function)],
     ]);
   });
 
@@ -1243,7 +1243,7 @@ describe("inbound receipt", () => {
     deps.runs.set("run-2", { status: "running", messagingMirroredAt: null });
     const handle = createMessagingInboundHandler(deps);
     await handle(dmEvent);
-    const handled = deps.acknowledge.mock.calls[0]![2];
+    const handled = deps.acknowledge.mock.calls[0]![3];
 
     deps.runs.get("run-1")!.messagingMirroredAt = new Date("2026-01-01T00:00:00Z");
     await expect(handled()).resolves.toBe(false);
@@ -1255,7 +1255,7 @@ describe("inbound receipt", () => {
     const deps = createDeps();
     const handle = createMessagingInboundHandler(deps);
     await handle(dmEvent);
-    const handled = deps.acknowledge.mock.calls[0]![2];
+    const handled = deps.acknowledge.mock.calls[0]![3];
 
     deps.botReplies.push({ id: "reply-1", runId: "run-1" });
     deps.outboundRows.push({
@@ -1274,7 +1274,7 @@ describe("inbound receipt", () => {
     const deps = createDeps();
     const handle = createMessagingInboundHandler(deps);
     await handle(dmEvent);
-    const handled = deps.acknowledge.mock.calls[0]![2];
+    const handled = deps.acknowledge.mock.calls[0]![3];
 
     deps.runs.get("run-1")!.status = "failed";
     await expect(handled()).resolves.toBe(true);

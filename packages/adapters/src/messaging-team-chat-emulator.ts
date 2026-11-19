@@ -5,6 +5,7 @@ import type {
   MessagingInboundEvent,
   MessagingInboundMessage,
   MessagingPlatformDescriptor,
+  MessagingReceiptAction,
   MessagingSendRequest,
   MessagingSendResult,
   MessagingSurface,
@@ -151,7 +152,12 @@ export class MessagingTeamChatEmulator implements MessagingSurface {
     return `${this.provider}:dm:${address}`;
   }
 
-  async acknowledge(_threadId: string, _handle: string, _context: AdapterContext): Promise<void> {}
+  async acknowledge(
+    _threadId: string,
+    _handle: string,
+    _action: MessagingReceiptAction,
+    _context: AdapterContext,
+  ): Promise<void> {}
 
   resetWitnesses(): void {
     this.sent.length = 0;

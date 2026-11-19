@@ -377,7 +377,11 @@ describe("messagingPlatformsFromEnv", () => {
     );
     expect(capabilities.sendblue).toEqual({ direct: true, groups: true, receipt: "typing" });
     expect(capabilities.slack).toEqual({ direct: true, groups: true, receipt: "reaction" });
-    expect(capabilities.whatsapp).toEqual({ direct: true, groups: false, receipt: null });
+    expect(capabilities.whatsapp).toEqual({
+      direct: true,
+      groups: false,
+      receipt: ["typing", "reaction"],
+    });
     expect(capabilities.telegram).toEqual({
       direct: true,
       groups: true,
@@ -386,6 +390,22 @@ describe("messagingPlatformsFromEnv", () => {
     });
     expect(capabilities.lark).toEqual({ direct: true, groups: false, receipt: null });
     expect(capabilities.photon).toEqual({ direct: true, groups: false, receipt: "typing" });
+  });
+
+  it("reports the WhatsApp message type as the medium", () => {
+    const whatsapp = messagingPlatformsFromEnv(fullEnv).find(
+      (platform) => platform.provider === "whatsapp",
+    )!;
+    const medium = (type: string) => whatsapp.medium?.({ message: { type } });
+
+    expect(medium("text")).toBe("text");
+    expect(medium("voice")).toBe("voice");
+    expect(medium("image")).toBe("image");
+    expect(medium("sticker")).toBe("sticker");
+    expect(medium("document")).toBe("document");
+    expect(medium("location")).toBe("location");
+    expect(medium("audio")).toBe("other");
+    expect(medium("video")).toBe("other");
   });
 });
 
