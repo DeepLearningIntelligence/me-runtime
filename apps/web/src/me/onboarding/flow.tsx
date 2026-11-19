@@ -44,7 +44,7 @@ export function MeOnboardingPage() {
   const [whatsapp] = useState<DoorWhatsappState | null>(() =>
     parseWhatsappState(takeWhatsappLink()),
   );
-  const whatsappLinked = whatsapp === "linked" || whatsapp === "already_linked";
+  const whatsappLinked = whatsappLinkedState(whatsapp);
 
   useEffect(() => {
     let active = true;
