@@ -303,6 +303,13 @@ export const OrganizationListSchema = z.object({
 });
 export type OrganizationList = z.infer<typeof OrganizationListSchema>;
 
+const FollowUpPreferencesSchema = z.object({
+  followUps: z.boolean(),
+  quietHoursStart: z.int().min(0).max(1439),
+  quietHoursEnd: z.int().min(0).max(1439),
+  followUpDailyCap: z.int32().min(1),
+});
+
 export const appContract = {
   analytics: { screen: oc.input(AnalyticsScreenInput).output(z.object({ ok: z.literal(true) })) },
   aiConsent: {
@@ -385,6 +392,10 @@ export const appContract = {
     revoke: oc.input(z.object({ id: Id })).output(AccessGrantSchema),
   },
   preferences: {
+    followUps: {
+      get: oc.output(FollowUpPreferencesSchema),
+      update: oc.input(FollowUpPreferencesSchema).output(FollowUpPreferencesSchema),
+    },
     update: oc
       .input(
         z

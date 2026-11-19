@@ -27,6 +27,7 @@ import {
   UsageSettingsPanel,
 } from "./AccountSettingsOverlay";
 import { BillingSettingsPanel } from "./BillingSettingsPanel";
+import { FollowUpSettingsPanel } from "./FollowUpSettingsPanel";
 import { InvitesSettingsPanel } from "./InvitesSettingsPanel";
 import { MemorySettingsOverlay } from "./MemorySettingsOverlay";
 import { MessagingSettingsPanel } from "./MessagingSettingsPanel";
@@ -396,6 +397,7 @@ export function SettingsOverlay({
                         onAccountImported={onAccountImported}
                         onImportAgent={onImportAgent}
                       />
+                      <FollowUpSettingsPanel />
                       {/* One space is just the app, so there is nothing to tell apart or manage. */}
                       {spaces.length > 1 && onOpenSpace ? (
                         <SettingsGroup title={t`Spaces`} data-testid="settings-spaces">

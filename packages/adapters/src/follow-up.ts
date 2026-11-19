@@ -37,6 +37,13 @@ export type FollowUpPreference = {
   followUpDailyCap: number;
 };
 
+export const DEFAULT_FOLLOW_UP_PREFERENCE: Readonly<FollowUpPreference> = {
+  followUps: true,
+  quietHoursStart: DEFAULT_QUIET_HOURS_START,
+  quietHoursEnd: DEFAULT_QUIET_HOURS_END,
+  followUpDailyCap: DEFAULT_FOLLOW_UP_DAILY_CAP,
+};
+
 export type FollowUpSilenceReason =
   | "not_opted_in"
   | "dismissed"
@@ -111,12 +118,7 @@ export function followUpSilenceReason(input: {
   // A person with no row gets the same policy the row would have: the database defaults are
   // the product's defaults, not a bypass. Reading them only when a row exists let a consented
   // follow-up speak during quiet hours and ignored the daily cap entirely.
-  const policy: FollowUpPreference = preference ?? {
-    followUps: true,
-    quietHoursStart: DEFAULT_QUIET_HOURS_START,
-    quietHoursEnd: DEFAULT_QUIET_HOURS_END,
-    followUpDailyCap: DEFAULT_FOLLOW_UP_DAILY_CAP,
-  };
+  const policy = preference ?? DEFAULT_FOLLOW_UP_PREFERENCE;
   if (!state.agreedAt) return "not_opted_in";
   if (state.status === "dismissed") return "dismissed";
   if (optedOut) return "opted_out";
@@ -193,12 +195,7 @@ export async function wakeFollowUp(
     }),
   ]);
   const timezone = user?.timezone ?? "UTC";
-  const policy: FollowUpPreference = preference ?? {
-    followUps: true,
-    quietHoursStart: DEFAULT_QUIET_HOURS_START,
-    quietHoursEnd: DEFAULT_QUIET_HOURS_END,
-    followUpDailyCap: DEFAULT_FOLLOW_UP_DAILY_CAP,
-  };
+  const policy = preference ?? DEFAULT_FOLLOW_UP_PREFERENCE;
   const deliveriesToday = await deps.prisma.run.count({
     where: {
       userId: routine.userId,
