@@ -205,3 +205,84 @@ it("ends in the portal with WhatsApp offered when the person started on the web"
   await act(async () => portal.click());
   expect(host.textContent).toContain("Portal");
 });
+
+it("skips the manual link step when the door linked WhatsApp itself", async () => {
+  window.sessionStorage.setItem("me.whatsapp-link", "linked");
+  await render();
+  expect(host.querySelector("h1")!.textContent).toBe("What should we call you?");
+  await act(async () => {
+    const input = host.querySelector<HTMLInputElement>("input[name=name]")!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Ada");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  updateUser.mockResolvedValue({ error: null });
+  await click("Continue");
+  await click("Skip for now");
+  expect(host.querySelector("h1")!.textContent).toBe("Where will you use me?");
+  await click("Continue");
+  // No "Connect WhatsApp" step: the number the door bound is already linked.
+  expect(host.querySelector("h1")!.textContent).toBe("Invite friends");
+  expect(linkStart).not.toHaveBeenCalled();
+});
+
+it("already_linked skips the manual link step too", async () => {
+  window.sessionStorage.setItem("me.whatsapp-link", "already_linked");
+  await render();
+  expect(host.querySelector("h1")!.textContent).toBe("What should we call you?");
+  await act(async () => {
+    const input = host.querySelector<HTMLInputElement>("input[name=name]")!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Ada");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  updateUser.mockResolvedValue({ error: null });
+  await click("Continue");
+  await click("Skip for now");
+  await click("Continue");
+  expect(host.querySelector("h1")!.textContent).toBe("Invite friends");
+});
+
+it("the door's link ends the flow on Back to WhatsApp whatever the entry", async () => {
+  window.sessionStorage.setItem("me.whatsapp-link", "linked");
+  await render();
+  await walkToDone();
+  const back = host.querySelector('a[href="https://wa.me/15550001"]')!;
+  expect(back.textContent).toBe("Back to WhatsApp");
+  expect(back.getAttribute("target")).toBeNull();
+});
+
+it("linked_elsewhere reaches the done screen with the number's story and no Back button", async () => {
+  window.sessionStorage.setItem("me.whatsapp-link", "linked_elsewhere");
+  await render();
+  await walkToDone();
+  expect(host.textContent).toContain("This WhatsApp number already chats with another me account.");
+  // The story is shown and the primary button is the portal, not WhatsApp.
+  expect(
+    [...host.querySelectorAll("button, a")].filter((row) => row.textContent === "Back to WhatsApp"),
+  ).toHaveLength(0);
+});
+
+it("agent_has_other_number points at the manual path to switch", async () => {
+  window.sessionStorage.setItem("me.whatsapp-link", "agent_has_other_number");
+  await render();
+  await walkToDone();
+  expect(host.textContent).toContain("Switch it in Settings, then People.");
+});
+
+/** Walks a fresh phone person through name, email, WhatsApp choice and invites. */
+async function walkToDone() {
+  await act(async () => {
+    const input = host.querySelector<HTMLInputElement>("input[name=name]")!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "Ada");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  updateUser.mockResolvedValue({ error: null });
+  await click("Continue");
+  await click("Skip for now");
+  await click("Continue");
+  // A journey without a fresh link still walks the manual link step.
+  if (host.querySelector("h1")!.textContent === "Connect WhatsApp") {
+    await click("Skip for now");
+  }
+  await click("Continue");
+  expect(host.querySelector("h1")!.textContent).toBe("You’re connected");
+}

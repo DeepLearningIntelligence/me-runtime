@@ -62,6 +62,17 @@ it("sends the nonce and code with the verify call and nothing else", async () =>
   expect(JSON.parse(String(init?.body))).toEqual({ nonce: "ME-ABC123", code: "123456" });
 });
 
+it("carries the verify answer's WhatsApp link state, unnamed servers included", async () => {
+  fetchMock.mockReturnValue(jsonReply(200, { ok: true, whatsapp: "linked" }));
+  await expect(verifyPhoneDoor({ nonce: "ME-ABC123", code: "123456" })).resolves.toEqual({
+    whatsapp: "linked",
+  });
+  fetchMock.mockReturnValue(jsonReply(200, { ok: true }));
+  await expect(verifyPhoneDoor({ nonce: "ME-ABC123", code: "123456" })).resolves.toEqual({
+    whatsapp: "not_attempted",
+  });
+});
+
 it("carries the business number the server configured", async () => {
   fetchMock.mockReturnValue(
     jsonReply(200, {

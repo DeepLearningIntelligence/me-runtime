@@ -320,6 +320,7 @@ export async function startMessagingRuntime({
       },
       signIn: whatsAppSignInHandler(prisma, {
         identityHashKey: env.meIdentityHashKey,
+        encryptionKey: env.encryptionKey,
       }),
       messaging,
     }),

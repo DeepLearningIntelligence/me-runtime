@@ -217,6 +217,66 @@ export async function issueMessagingLinkCode(
   return { code, expiresAt };
 }
 
+export interface MessagingAttachRequest {
+  provider: string;
+  address: string;
+  dmThreadId?: string | null;
+  installationId?: string | null;
+  /** The person the address belongs to; never moved onto someone else's address. */
+  userId: string;
+  spaceId: string;
+  botId: string;
+}
+
+export type MessagingAttachResult =
+  | { outcome: "created"; identityId: string }
+  | { outcome: "attached"; identityId: string }
+  | { outcome: "other_user" };
+
+/**
+ * The one writer of a person's `MessagingIdentity` rows (`provisionMessagingIdentity`
+ * owns only the synthetic-user path). A fresh address gets a new identity on the
+ * requested bot; the owner's own linked address moves to the requested bot; an
+ * address another person holds is refused by name, never moved. Runs inside the
+ * caller's transaction, so the identity write commits or rolls back with the
+ * rest of the caller's work.
+ *
+ * Unique violations are not caught here on purpose: Postgres aborts a
+ * transaction whose statement failed, so the caller re-reads outside it to
+ * learn which constraint lost, the address race or the bot's one-identity rule.
+ */
+export async function attachMessagingIdentity(
+  tx: Prisma.TransactionClient,
+  request: MessagingAttachRequest,
+): Promise<MessagingAttachResult> {
+  const where = {
+    provider_address: { provider: request.provider, address: request.address },
+  } as const;
+  const data = {
+    botId: request.botId,
+    // The identity must follow the bot's space: runs resolve
+    // credentials, memory, and approval rules from run.spaceId.
+    spaceId: request.spaceId,
+    dmThreadId: request.dmThreadId ?? null,
+    installationId: request.installationId ?? null,
+  };
+  const existing = await tx.messagingIdentity.findUnique({ where });
+  if (existing) {
+    if (existing.userId !== request.userId) return { outcome: "other_user" };
+    await tx.messagingIdentity.update({ where: { id: existing.id }, data });
+    return { outcome: "attached", identityId: existing.id };
+  }
+  const identity = await tx.messagingIdentity.create({
+    data: {
+      ...data,
+      provider: request.provider,
+      address: request.address,
+      userId: request.userId,
+    },
+  });
+  return { outcome: "created", identityId: identity.id };
+}
+
 export interface RedeemedMessagingLink {
   identityId: string;
   userId: string;
@@ -255,40 +315,18 @@ export async function redeemMessagingLinkCode(
       // Single-use: the delete is the claim; a concurrent redemption loses.
       const { count } = await tx.messagingLinkCode.deleteMany({ where: { id: row.id } });
       if (count === 0) return null;
-      const existing = await tx.messagingIdentity.findUnique({
-        where: { provider_address: { provider: request.provider, address: request.address } },
+      const attach = await attachMessagingIdentity(tx, {
+        provider: request.provider,
+        address: request.address,
+        dmThreadId: request.dmThreadId,
+        installationId: request.installationId,
+        userId: row.userId,
+        spaceId: row.spaceId,
+        botId: row.botId,
       });
-      let identityId: string;
-      if (existing) {
-        if (existing.userId !== row.userId) return null;
-        await tx.messagingIdentity.update({
-          where: { id: existing.id },
-          // The identity must follow the bot's space: runs resolve
-          // credentials, memory, and approval rules from run.spaceId.
-          data: {
-            botId: row.botId,
-            spaceId: row.spaceId,
-            dmThreadId: request.dmThreadId,
-            installationId: request.installationId ?? null,
-          },
-        });
-        identityId = existing.id;
-      } else {
-        const identity = await tx.messagingIdentity.create({
-          data: {
-            provider: request.provider,
-            address: request.address,
-            dmThreadId: request.dmThreadId,
-            installationId: request.installationId,
-            userId: row.userId,
-            spaceId: row.spaceId,
-            botId: row.botId,
-          },
-        });
-        identityId = identity.id;
-      }
+      if (attach.outcome === "other_user") return null;
       const redeemed = {
-        identityId,
+        identityId: attach.identityId,
         userId: row.userId,
         spaceId: row.spaceId,
         botId: row.botId,

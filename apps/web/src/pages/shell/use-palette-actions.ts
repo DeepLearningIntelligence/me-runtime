@@ -47,7 +47,7 @@ export function usePaletteActions({
     },
     {
       id: "integrations",
-      label: t`Connect apps`,
+      label: t`Connect tools`,
       icon: Plug,
       onSelect: () => setOverlay({ kind: "integrations" }),
     },

@@ -34,24 +34,16 @@ export async function rpc<T>(page: Page, procedure: string, body: unknown): Prom
 
 export async function completeOnboarding(page: Page, testInfo?: TestInfo) {
   await page.waitForURL(/\/(onboarding|app)/, { timeout: 20_000 });
-  // The me.io onboarding (ME-RUN-001): connect WhatsApp is skippable, the
-  // invite meter and the done screen each carry one Continue. A complete
-  // account is moved to /app by the page itself, so both URLs land here.
-  const portal = page
-    .getByRole("button", { name: "Open the portal" })
-    .or(page.getByText("Chief").first());
-  await portal.first().waitFor({ timeout: 20_000 });
-  const skip = page.getByRole("button", { name: "Skip for now" });
-  if (
-    await skip
-      .first()
-      .isVisible()
-      .catch(() => false)
-  ) {
-    if (testInfo) await captureScreenshot(page, testInfo, "02-connect-apps");
-    await skip.first().click();
-    await page.getByRole("button", { name: "Continue" }).click();
+  // The me.io onboarding (ME-RUN-001): a fresh email account lands on the
+  // skippable Connect WhatsApp step, the invite meter carries one Continue and
+  // the done screen opens the portal. A complete account is moved to /app by
+  // the page itself, so both URLs land here.
+  if (new URL(page.url()).pathname.startsWith("/app")) {
+    await expect(page.getByText("Chief").first()).toBeVisible();
+    return;
   }
+  if (testInfo) await captureScreenshot(page, testInfo, "02-connect-apps");
+  await page.getByRole("button", { name: "Skip for now" }).click();
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Open the portal" }).click();
   await page.waitForURL(/\/app/, { timeout: 20_000 });

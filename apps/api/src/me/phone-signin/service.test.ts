@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
 import type { PrismaClient } from "@rakazo/db";
+import { createLogger, createTestSink, getLogger, installLogger } from "@rakazo/logging";
 import { describe, expect, it } from "vitest";
 import { hashIdentifier } from "./identity.js";
-import { handleInbound, EXPIRED_CODE_REPLY, PhoneSigninError, start, verify } from "./service.js";
+import { EXPIRED_CODE_REPLY, handleInbound, PhoneSigninError, start, verify } from "./service.js";
 
 /**
  * The door's guards, against an in-memory store that follows the same update
@@ -25,6 +26,7 @@ type SigninRow = {
   expiresAt: Date;
   attempts: number;
   ipAddress: string | null;
+  senderAddress: string | null;
   createdAt: Date;
 };
 
@@ -75,6 +77,7 @@ function fakePrisma() {
         consumedAt: null,
         attempts: 0,
         ipAddress: null,
+        senderAddress: null,
         createdAt: new Date(BASE),
         ...data,
       };
@@ -141,8 +144,8 @@ function fakePrisma() {
   return { prisma, signins, claimedMessages };
 }
 
-function makeConfig(now: () => number) {
-  return { identityHashKey: key, now };
+function makeConfig(now: () => number): import("./service.js").PhoneSigninConfig {
+  return { identityHashKey: key, encryptionKey: key, now };
 }
 
 async function bind(
@@ -344,12 +347,16 @@ describe("phone sign-in", () => {
     const now = BASE;
     const fake = fakePrisma();
     await expect(
-      start(fake.prisma, { identityHashKey: undefined, now: () => now }, {}),
+      start(
+        fake.prisma,
+        { identityHashKey: undefined, encryptionKey: undefined, now: () => now },
+        {},
+      ),
     ).rejects.toMatchObject({ reason: "identity_key_missing" });
     await expect(
       handleInbound(
         fake.prisma,
-        { identityHashKey: undefined, now: () => now },
+        { identityHashKey: undefined, encryptionKey: undefined, now: () => now },
         { from: "15550001000", body: "ME-ABC123", providerMessageId: "wamid.x" },
       ),
     ).rejects.toMatchObject({ reason: "identity_key_missing" });
@@ -411,5 +418,100 @@ describe("phone sign-in", () => {
       },
     );
     expect(fake.signins[0]!.consumedAt).toBeNull();
+  });
+});
+
+describe("the sealed sender address (ME-RUN-005)", () => {
+  it("survives from the inbound message to verify as a seal, never as the number", async () => {
+    const now = BASE;
+    const fake = fakePrisma();
+    const config = makeConfig(() => now);
+    const started = await start(fake.prisma, config, {});
+
+    const outcome = await bind(fake, config, started.nonce, "15550001000", "wamid.bind");
+    const row = JSON.stringify(fake.signins[0]);
+    // The row carries a sealed ciphertext and the raw number appears nowhere.
+    expect(fake.signins[0]!.senderAddress).toMatch(/^v2:/);
+    expect(row).not.toContain("15550001000");
+
+    const verified = await verify(fake.prisma, config, {
+      nonce: started.nonce,
+      code: (outcome as { reply: string }).reply,
+    });
+    expect(verified.phoneHash).toBe(hashIdentifier("phone", key, "15550001000"));
+    expect(verified.senderAddress).toBe("15550001000");
+  });
+
+  it("clears the sealed address when the code is consumed", async () => {
+    const now = BASE;
+    const fake = fakePrisma();
+    const config = makeConfig(() => now);
+    const started = await start(fake.prisma, config, {});
+    const outcome = await bind(fake, config, started.nonce, "15550001000", "wamid.first");
+    const code = (outcome as { reply: string }).reply;
+
+    const verified = await verify(fake.prisma, config, { nonce: started.nonce, code });
+    await verified.redeem(fake.prisma);
+    expect(fake.signins[0]!.senderAddress).toBeNull();
+    // A second verify of the spent door carries nothing left to link.
+    const again = await verify(fake.prisma, config, { nonce: started.nonce, code });
+    expect(again.senderAddress).toBeNull();
+  });
+
+  it("an expired door yields its address to nobody", async () => {
+    let now = BASE;
+    const fake = fakePrisma();
+    const config = makeConfig(() => now);
+    const started = await start(fake.prisma, config, {});
+    await bind(fake, config, started.nonce, "15550001000", "wamid.first");
+
+    now = BASE + 10 * 60_000 + 1;
+    await expect(
+      verify(fake.prisma, config, { nonce: started.nonce, code: "123456" }),
+    ).rejects.toMatchObject({ reason: "code_expired" });
+    // The seal is still on the row, but no code can open this door again.
+    expect(fake.signins[0]!.senderAddress).toMatch(/^v2:/);
+  });
+
+  it("sign-in works without an encryption key; the link reports nothing to link", async () => {
+    const now = BASE;
+    const fake = fakePrisma();
+    const config: import("./service.js").PhoneSigninConfig = {
+      ...makeConfig(() => now),
+      encryptionKey: undefined,
+    };
+    const started = await start(fake.prisma, config, {});
+    const outcome = await bind(fake, config, started.nonce, "15550001000", "wamid.first");
+    expect(outcome).toMatchObject({ reply: expect.stringMatching(/^\d{6}$/) });
+    expect(fake.signins[0]!.senderAddress).toBeNull();
+    const verified = await verify(fake.prisma, config, {
+      nonce: started.nonce,
+      code: (outcome as { reply: string }).reply,
+    });
+    expect(verified.senderAddress).toBeNull();
+    expect(verified.phoneHash).toBe(hashIdentifier("phone", key, "15550001000"));
+  });
+
+  it("the number appears in no log line through the whole flow", async () => {
+    const sink = createTestSink();
+    const previousLogger = getLogger();
+    installLogger(createLogger({ service: "test", sinks: [sink] }));
+    try {
+      const now = BASE;
+      const fake = fakePrisma();
+      const config = makeConfig(() => now);
+      const started = await start(fake.prisma, config, {});
+      const outcome = await bind(fake, config, started.nonce, "15550001000", "wamid.first");
+      const code = (outcome as { reply: string }).reply;
+      const verified = await verify(fake.prisma, config, { nonce: started.nonce, code });
+      // An unreadable seal is the one logged path: open with the wrong key.
+      const wrongKey = { ...config, encryptionKey: "another-key-entirely" };
+      const degraded = await verify(fake.prisma, wrongKey, { nonce: started.nonce, code });
+      expect(degraded.senderAddress).toBeNull();
+      await verified.redeem(fake.prisma);
+      expect(JSON.stringify(sink.events)).not.toContain("15550001000");
+    } finally {
+      installLogger(previousLogger);
+    }
   });
 });

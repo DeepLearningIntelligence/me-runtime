@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PrismaClient } from "./client.js";
-import { provisionMessagingIdentity, redeemMessagingLinkCode } from "./messaging.js";
+import type { Prisma, PrismaClient } from "./client.js";
+import {
+  attachMessagingIdentity,
+  provisionMessagingIdentity,
+  redeemMessagingLinkCode,
+} from "./messaging.js";
 
 describe("provisionMessagingIdentity", () => {
   it("returns the existing identity without creating anything when already provisioned", async () => {
@@ -291,4 +295,140 @@ it("cannot redeem another space's personal link code through a workspace install
     }),
   ).toBeNull();
   expect(transaction).not.toHaveBeenCalled();
+});
+
+describe("attachMessagingIdentity", () => {
+  /** A transaction client fake with the (provider, address) and botId unique rules. */
+  function attachFixture(
+    identities: Array<{
+      id: string;
+      provider: string;
+      address: string;
+      userId: string;
+      spaceId: string;
+      botId: string;
+      dmThreadId: string | null;
+    }>,
+  ) {
+    const writes: Array<Record<string, unknown>> = [];
+    const tx = {
+      messagingIdentity: {
+        findUnique: async ({
+          where,
+        }: {
+          where: { provider_address?: { provider: string; address: string } };
+        }) =>
+          identities.find(
+            (row) =>
+              row.provider === where.provider_address?.provider &&
+              row.address === where.provider_address?.address,
+          ) ?? null,
+        update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          const row = identities.find((candidate) => candidate.id === where.id);
+          if (!row) throw new Error("not found");
+          writes.push({ where, data });
+          Object.assign(row, data);
+          return row;
+        },
+        create: async ({ data }: { data: Record<string, unknown> }) => {
+          if (
+            identities.some(
+              (row) =>
+                (row.provider === data.provider && row.address === data.address) ||
+                row.botId === data.botId,
+            )
+          ) {
+            throw { code: "P2002" };
+          }
+          const row = {
+            id: `mi-${identities.length + 1}`,
+            dmThreadId: null,
+            ...data,
+          } as (typeof identities)[number];
+          identities.push(row);
+          writes.push({ create: data });
+          return row;
+        },
+      },
+    };
+    const client = tx as unknown as Prisma.TransactionClient;
+    return { tx: client, identities, writes };
+  }
+
+  const base = {
+    provider: "whatsapp",
+    address: "15550001000",
+    userId: "user-1",
+    spaceId: "ws-1",
+    botId: "bot-1",
+  };
+
+  it("creates an identity for a fresh address on the requested bot", async () => {
+    const f = attachFixture([]);
+    const result = await attachMessagingIdentity(f.tx, base);
+    expect(result).toEqual({ outcome: "created", identityId: expect.any(String) });
+    expect(f.identities).toHaveLength(1);
+    expect(f.identities[0]).toMatchObject({ ...base, dmThreadId: null });
+  });
+
+  it("moves the owner's own linked address to the requested bot", async () => {
+    const f = attachFixture([
+      {
+        id: "mi-1",
+        provider: "whatsapp",
+        address: "15550001000",
+        userId: "user-1",
+        spaceId: "ws-1",
+        botId: "bot-old",
+        dmThreadId: "thread-old",
+      },
+    ]);
+    const result = await attachMessagingIdentity(f.tx, {
+      ...base,
+      botId: "bot-new",
+      spaceId: "ws-new",
+      dmThreadId: "thread-new",
+    });
+    expect(result).toEqual({ outcome: "attached", identityId: "mi-1" });
+    expect(f.identities[0]).toMatchObject({
+      botId: "bot-new",
+      spaceId: "ws-new",
+      dmThreadId: "thread-new",
+    });
+  });
+
+  it("refuses an address another person holds and writes nothing", async () => {
+    const f = attachFixture([
+      {
+        id: "mi-1",
+        provider: "whatsapp",
+        address: "15550001000",
+        userId: "user-a",
+        spaceId: "ws-a",
+        botId: "bot-a",
+        dmThreadId: null,
+      },
+    ]);
+    const result = await attachMessagingIdentity(f.tx, { ...base, userId: "user-b" });
+    expect(result).toEqual({ outcome: "other_user" });
+    expect(f.writes).toHaveLength(0);
+    expect(f.identities[0]).toMatchObject({ userId: "user-a", botId: "bot-a" });
+  });
+
+  it("leaves unique violations to the caller, whose transaction is already aborted", async () => {
+    const f = attachFixture([
+      {
+        id: "mi-1",
+        provider: "whatsapp",
+        address: "15550002000",
+        userId: "user-2",
+        spaceId: "ws-2",
+        botId: "bot-1",
+        dmThreadId: null,
+      },
+    ]);
+    // bot-1 already chats at another address: the create must surface the
+    // constraint, not swallow it inside a transaction Postgres has aborted.
+    await expect(attachMessagingIdentity(f.tx, base)).rejects.toMatchObject({ code: "P2002" });
+  });
 });

@@ -1,5 +1,7 @@
+import { EncryptedSecretStore } from "@rakazo/adapters";
 import type { Prisma, PrismaClient } from "@rakazo/db";
 import { isUniqueViolation, runAsSystem } from "@rakazo/db";
+import { getLogger } from "@rakazo/logging";
 import { hashInviteToken, inspectInvite } from "../invitations/invitations.js";
 import {
   CODE_TTL_MS,
@@ -46,12 +48,22 @@ import { hashIdentifier, normaliseIdentifier } from "./identity.js";
  *
  * Phones are hashed through `normaliseIdentifier`, the one canonical form
  * (digits, no `+`). No key, nonce, code or token is ever logged; the caller
- * delivers the reply text.
+ * delivers the reply text. One exception to "only the hash is stored": while a
+ * bound door is alive, the sender's WhatsApp address is kept in a sealed
+ * column so the sign-in that follows can link the number to the person's
+ * default agent. It is sealed with the secret store's cipher, cleared when the
+ * code is consumed, dead with the door's expiry, and never logged.
  */
 
 export type PhoneSigninConfig = {
   /** The deployment's identity-hash key; the door refuses without it. */
   identityHashKey: string | undefined;
+  /**
+   * The deployment's secret-encryption key. Seals the bound sender address into
+   * the row for the post-sign-in WhatsApp link; without it the address is not
+   * stored and the link reports `not_attempted`. Sign-in itself never needs it.
+   */
+  encryptionKey: string | undefined;
   /** Tests pin the present moment; production reads the clock. */
   now?: () => number;
 };
@@ -103,7 +115,8 @@ export type InboundOutcome =
     };
 
 /** The one answer a dead or unknown door gets; it never names which. */
-export const EXPIRED_CODE_REPLY = "That code has expired. Open the sign-in page again and use the new link.";
+export const EXPIRED_CODE_REPLY =
+  "That code has expired. Open the sign-in page again and use the new link.";
 
 export type VerifiedPhone = {
   /** The bound phone's HMAC; the caller turns it into a person and a session. */
@@ -127,15 +140,77 @@ export type VerifiedPhone = {
    * of two parallel redemptions exactly one wins.
    */
   redeem: (client: Prisma.TransactionClient | PrismaClient) => Promise<void>;
+  /**
+   * The WhatsApp address that bound the nonce, opened from its sealed column
+   * after the code verified; null when nothing was bound, the seal is
+   * unreadable, or the deployment has no encryption key. The caller may link
+   * it to the person's default agent; it is never logged.
+   */
+  senderAddress: string | null;
 };
 
-const PROVIDER = "whatsapp";
+/** The messaging provider the phone door binds through; the WhatsApp line. */
+export const PROVIDER = "whatsapp";
 
 /** The one canonical phone check, over the digits `normaliseIdentifier` leaves. */
 export function requirePhoneValue(phone: string): string {
   const normalised = normaliseIdentifier("phone", phone);
   if (!/^[1-9]\d{6,14}$/.test(normalised)) throw new PhoneSigninError("invalid_phone");
   return normalised;
+}
+
+/** The AAD record id the sender address's seal is bound to: this row and no other. */
+function senderAddressRecordId(rowId: string): string {
+  return `me-phone-signin:${rowId}`;
+}
+
+/**
+ * Seals the bound sender address with the same cipher the secret store uses for
+ * secrets, bound to this row's id so a ciphertext copied to another row (or
+ * another deployment) fails authentication. Without an encryption key nothing
+ * is stored and the post-sign-in link later reports `not_attempted`.
+ */
+async function sealSenderAddress(
+  config: PhoneSigninConfig,
+  rowId: string,
+  address: string,
+): Promise<string | null> {
+  if (!config.encryptionKey) return null;
+  const store = new EncryptedSecretStore(config.encryptionKey);
+  const record = await store.put(address, putContext(), {
+    recordId: senderAddressRecordId(rowId),
+  });
+  return record.ref;
+}
+
+/** Opens the sealed sender address; an unreadable seal is a degraded link, not a failed one. */
+async function openSenderAddress(
+  config: PhoneSigninConfig,
+  rowId: string,
+  ciphertext: string,
+): Promise<string | null> {
+  if (!config.encryptionKey) return null;
+  try {
+    return await new EncryptedSecretStore(config.encryptionKey).load(
+      ciphertext,
+      senderAddressRecordId(rowId),
+    );
+  } catch (error) {
+    // The reason names the failure; the address itself never appears here.
+    getLogger().error("phone sign-in sender address did not open", error);
+    return null;
+  }
+}
+
+/** The context shape the secret store's put requires; no user or space applies. */
+function putContext() {
+  return {
+    operationId: "phone.signin",
+    traceId: "phone.signin",
+    spaceId: "",
+    userId: "",
+    signal: new AbortController().signal,
+  };
 }
 
 /**
@@ -248,13 +323,16 @@ export async function handleInbound(
 
       const code = newCode();
       // The conditional update is the bind: a concurrent delivery for the same
-      // nonce matches nothing and mints nothing.
+      // nonce matches nothing and mints nothing. The same write seals the
+      // sender's address for the post-sign-in link, bound to this row.
+      const sealedAddress = await sealSenderAddress(config, row.id, message.from);
       const bound = await tx.mePhoneSignin.updateMany({
         where: { nonceHash, boundAt: null, expiresAt: { gt: new Date(now) } },
         data: {
           phoneHash: senderHash,
           boundAt: new Date(now),
           codeHash: sha256Hex(code),
+          senderAddress: sealedAddress,
         },
       });
       if (bound.count !== 1) return { reply: null, reason: "already_bound" };
@@ -299,17 +377,26 @@ export async function verify(
     throw new PhoneSigninError("code_invalid");
   }
   if (!row.phoneHash) throw new PhoneSigninError("code_invalid");
+  // The seal opens only after the code verified, and only while the door is
+  // alive: verify refused expired rows above, so a dead door never yields its
+  // address. The row is a snapshot; the address leaves the row with this call.
+  const senderAddress = row.senderAddress
+    ? await openSenderAddress(config, row.id, row.senderAddress)
+    : null;
   return {
     phoneHash: row.phoneHash,
     inviteTokenHash: row.inviteTokenHash ?? null,
     linkUserId: row.linkUserId ?? null,
+    senderAddress,
     redeem: (client) => redeemCode(client, row.id, now),
   };
 }
 
 /**
  * The one-time redemption of a verified code. The conditional update is the
- * single-use guard: a concurrent or earlier redemption matches nothing.
+ * single-use guard: a concurrent or earlier redemption matches nothing. The
+ * same write clears the sealed sender address: a consumed row carries nothing
+ * left to open.
  */
 async function redeemCode(
   client: Prisma.TransactionClient | PrismaClient,
@@ -318,7 +405,7 @@ async function redeemCode(
 ): Promise<void> {
   const redeemed = await client.mePhoneSignin.updateMany({
     where: { id: rowId, consumedAt: null },
-    data: { consumedAt: new Date(now) },
+    data: { consumedAt: new Date(now), senderAddress: null },
   });
   if (redeemed.count !== 1) throw new PhoneSigninError("code_invalid");
 }

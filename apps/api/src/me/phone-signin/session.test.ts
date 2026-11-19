@@ -5,13 +5,24 @@ import { InviteError } from "../invitations/invitations.js";
 import { sha256Hex } from "./codes.js";
 import { hashIdentifier } from "./identity.js";
 import { verify } from "./service.js";
-import { linkVerifiedPhone, phoneUserId, signInVerifiedPhone } from "./session.js";
+import {
+  attachWhatsappAfterSignin,
+  linkVerifiedPhone,
+  phoneUserId,
+  signInVerifiedPhone,
+} from "./session.js";
 
-// Only bootstrapUserSpace is replaced; every other export of the module stays
+const createBotMock = vi.hoisted(() => vi.fn());
+
+// Only bootstrapUserSpace and createRepos are replaced; every other export of the module stays
 // real, so runAsSystem and the Prisma error checks behave as in production.
 vi.mock("@rakazo/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@rakazo/db")>();
-  return { ...actual, bootstrapUserSpace: vi.fn() };
+  return {
+    ...actual,
+    bootstrapUserSpace: vi.fn(),
+    createRepos: vi.fn(() => ({ createBot: createBotMock })),
+  };
 });
 
 /**
@@ -292,7 +303,11 @@ const noopRedeem = async () => {};
 const NOW = Date.parse("2026-11-18T12:00:00Z");
 const NONCE = "ME-TESTNONCE1";
 const CODE = "654321";
-const config = { identityHashKey: "test-key", now: () => NOW };
+const config = {
+  identityHashKey: "test-key",
+  encryptionKey: "test-encryption-key",
+  now: () => NOW,
+};
 
 function boundSignin(overrides: Partial<SigninRow> = {}): SigninRow {
   return {
@@ -361,7 +376,15 @@ describe("phone door admission", () => {
 
     const verified = await verify(fake.prisma, config, { nonce: NONCE, code: CODE });
     await expect(
-      signInVerifiedPhone(fake.prisma, fake.auth, env, PHONE_HASH, {}, INVITE_HASH, verified.redeem),
+      signInVerifiedPhone(
+        fake.prisma,
+        fake.auth,
+        env,
+        PHONE_HASH,
+        {},
+        INVITE_HASH,
+        verified.redeem,
+      ),
     ).rejects.toMatchObject({ reason: "already_redeemed" });
     expect(fake.signins[0]!.consumedAt).toBeNull();
     expect(fake.users).toHaveLength(0);
@@ -462,7 +485,12 @@ describe("phone door admission", () => {
   it("signs a linked account in: the owner bootstrap's phone reaches the same user, with no invite", async () => {
     const fake = fakePrisma([]);
     // The account the email bootstrap created, carrying the phone's hash.
-    fake.users.push({ id: "owner-1", name: "Account", email: "owner@x.test", phoneHash: PHONE_HASH });
+    fake.users.push({
+      id: "owner-1",
+      name: "Account",
+      email: "owner@x.test",
+      phoneHash: PHONE_HASH,
+    });
 
     const session = await signInVerifiedPhone(
       fake.prisma,
@@ -502,16 +530,23 @@ describe("phone door admission", () => {
     fake.users.push({ id: "owner-1", name: "Account", email: "owner@x.test" });
     fake.signins.push(boundSignin());
     // The real redemption the door hands back: a conditional update on the row.
-    const redeem = vi.fn(async (client: { mePhoneSignin: { updateMany: (args: {
-      where: { id: string; consumedAt: null };
-      data: { consumedAt: Date };
-    }) => Promise<{ count: number }> } }) => {
-      const redeemed = await client.mePhoneSignin.updateMany({
-        where: { id: "row-1", consumedAt: null },
-        data: { consumedAt: new Date(NOW) },
-      });
-      if (redeemed.count !== 1) throw Object.assign(new Error("code_invalid"), { reason: "code_invalid" });
-    });
+    const redeem = vi.fn(
+      async (client: {
+        mePhoneSignin: {
+          updateMany: (args: {
+            where: { id: string; consumedAt: null };
+            data: { consumedAt: Date };
+          }) => Promise<{ count: number }>;
+        };
+      }) => {
+        const redeemed = await client.mePhoneSignin.updateMany({
+          where: { id: "row-1", consumedAt: null },
+          data: { consumedAt: new Date(NOW) },
+        });
+        if (redeemed.count !== 1)
+          throw Object.assign(new Error("code_invalid"), { reason: "code_invalid" });
+      },
+    );
 
     await linkVerifiedPhone(fake.prisma, PHONE_HASH, "owner-1", null, redeem);
 
@@ -523,7 +558,12 @@ describe("phone door admission", () => {
 
   it("refuses a link of a phone another person holds, leaving the code usable", async () => {
     const fake = fakePrisma([]);
-    fake.users.push({ id: "holder-1", name: "Other", email: "other@x.test", phoneHash: PHONE_HASH });
+    fake.users.push({
+      id: "holder-1",
+      name: "Other",
+      email: "other@x.test",
+      phoneHash: PHONE_HASH,
+    });
     fake.users.push({ id: "owner-1", name: "Account", email: "owner@x.test" });
     fake.signins.push(boundSignin());
 
@@ -584,5 +624,241 @@ describe("phone door admission", () => {
     fake.users[0]!.phoneHash = undefined;
     await linkVerifiedPhone(fake.prisma, PHONE_HASH, "opener-1", "opener-1", noopRedeem);
     expect(fake.users[0]!.phoneHash).toBe(PHONE_HASH);
+  });
+});
+
+describe("whatsapp auto-link (ME-RUN-005)", () => {
+  type LinkIdentity = {
+    id: string;
+    provider: string;
+    address: string;
+    userId: string;
+    spaceId: string;
+    botId: string;
+  };
+
+  function linkFake(
+    input: { members?: string[]; bots?: Array<{ id: string }>; identities?: LinkIdentity[] } = {},
+  ) {
+    const members = input.members ?? ["user-1"];
+    const bots = input.bots ?? [];
+    const identities = input.identities ?? [];
+    const outbound: Array<Record<string, unknown>> = [];
+    const enqueue = vi.fn(async () => {});
+    const notFound = () => {
+      const error = new Error("record not found") as Error & { code: string };
+      error.code = "P2025";
+      throw error;
+    };
+    const tx = {
+      messagingIdentity: {
+        findUnique: async ({
+          where,
+        }: {
+          where: { provider_address?: { provider: string; address: string } };
+        }) =>
+          identities.find(
+            (row) =>
+              row.provider === where.provider_address?.provider &&
+              row.address === where.provider_address?.address,
+          ) ?? null,
+        update: async ({
+          where,
+          data,
+        }: {
+          where: { id: string };
+          data: Record<string, unknown>;
+        }) => {
+          const row = identities.find((candidate) => candidate.id === where.id);
+          if (!row) notFound();
+          Object.assign(row as object, data);
+          return row;
+        },
+        create: async ({ data }: { data: Record<string, unknown> }) => {
+          if (
+            identities.some(
+              (row) =>
+                (row.provider === data.provider && row.address === data.address) ||
+                row.botId === data.botId,
+            )
+          ) {
+            throw { code: "P2002" };
+          }
+          const row = { id: `mi-${identities.length + 1}`, ...data } as LinkIdentity;
+          identities.push(row);
+          return row;
+        },
+      },
+      messagingOutbound: {
+        createMany: async ({
+          data,
+          skipDuplicates,
+        }: {
+          data: Array<Record<string, unknown>>;
+          skipDuplicates?: boolean;
+        }) => {
+          let count = 0;
+          for (const row of data) {
+            if (
+              outbound.some((existing) => existing.idempotencyKey === row.idempotencyKey) &&
+              skipDuplicates
+            ) {
+              continue;
+            }
+            if (outbound.some((existing) => existing.idempotencyKey === row.idempotencyKey)) {
+              throw { code: "P2002" };
+            }
+            outbound.push(row);
+            count += 1;
+          }
+          return { count };
+        },
+      },
+    };
+    const prisma = {
+      spaceMember: {
+        findFirst: async ({ where }: { where: { userId: string } }) =>
+          members.includes(where.userId) ? { spaceId: `space-for-${where.userId}` } : null,
+      },
+      bot: {
+        findFirst: async ({ where }: { where: { spaceId: string; userId: string } }) =>
+          bots.find((bot) => where.spaceId && where.userId) ?? null,
+      },
+      user: {
+        findUnique: async ({ where }: { where: { id: string } }) => ({
+          id: where.id,
+          email: `${where.id}@phone.invalid`,
+        }),
+      },
+      messagingIdentity: tx.messagingIdentity,
+      messagingOutbound: tx.messagingOutbound,
+      $transaction: async <T>(work: (client: typeof tx) => Promise<T>): Promise<T> => work(tx),
+    } as unknown as PrismaClient;
+    return { prisma, identities, outbound, enqueue, bots };
+  }
+
+  const env: SignupPolicyEnv = { signupsEnabled: undefined, signupAllowlist: undefined };
+  const deps = (fake: ReturnType<typeof linkFake>) => ({
+    prisma: fake.prisma,
+    jobs: { enqueue: fake.enqueue },
+    env,
+  });
+  const request = { userId: "user-1", address: "15550001000", nonce: NONCE };
+
+  beforeEach(() => {
+    createBotMock.mockReset();
+    createBotMock.mockResolvedValue({ id: "bot-created" });
+  });
+
+  it("links the number to the person's oldest bot and queues one welcome", async () => {
+    const fake = linkFake({ bots: [{ id: "bot-old" }, { id: "bot-new" }] });
+    const state = await attachWhatsappAfterSignin(deps(fake), request);
+    expect(state).toBe("linked");
+    expect(fake.identities[0]).toMatchObject({
+      provider: "whatsapp",
+      address: "15550001000",
+      userId: "user-1",
+      spaceId: "space-for-user-1",
+      botId: "bot-old",
+    });
+    expect(fake.outbound).toEqual([
+      {
+        idempotencyKey: `signin-welcome:${sha256Hex(NONCE)}`,
+        kind: "dm",
+        identityId: fake.identities[0]!.id,
+        body: "You're connected. Message me here any time.",
+      },
+    ]);
+    expect(fake.enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates the first agent with the onboarding defaults when the person has none", async () => {
+    const fake = linkFake({ bots: [] });
+    const state = await attachWhatsappAfterSignin(deps(fake), request);
+    expect(state).toBe("linked");
+    expect(createBotMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "user-1", spaceId: "space-for-user-1" }),
+      expect.objectContaining({
+        name: "Chief",
+        notifyOnFinish: true,
+        spawnKey: "onboarding:first",
+        color: "#FF781C",
+      }),
+    );
+    expect(fake.identities[0]!.botId).toBe("bot-created");
+  });
+
+  it("replaying the same door links nothing more and queues no second welcome", async () => {
+    const fake = linkFake({ bots: [{ id: "bot-old" }] });
+    expect(await attachWhatsappAfterSignin(deps(fake), request)).toBe("linked");
+    expect(await attachWhatsappAfterSignin(deps(fake), request)).toBe("already_linked");
+    expect(fake.outbound).toHaveLength(1);
+    expect(fake.enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("a number another person holds is refused by name and never moved", async () => {
+    const fake = linkFake({
+      members: ["user-1"],
+      bots: [{ id: "bot-b" }],
+      identities: [
+        {
+          id: "mi-a",
+          provider: "whatsapp",
+          address: "15550001000",
+          userId: "user-a",
+          spaceId: "space-for-user-a",
+          botId: "bot-a",
+        },
+      ],
+    });
+    const state = await attachWhatsappAfterSignin(deps(fake), request);
+    expect(state).toBe("linked_elsewhere");
+    expect(fake.identities[0]).toMatchObject({ userId: "user-a", botId: "bot-a" });
+    expect(fake.outbound).toHaveLength(0);
+    expect(fake.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("an agent that already chats at another number is refused by name", async () => {
+    const fake = linkFake({
+      bots: [{ id: "bot-old" }],
+      identities: [
+        {
+          id: "mi-other",
+          provider: "whatsapp",
+          address: "15550002000",
+          userId: "user-1",
+          spaceId: "space-for-user-1",
+          botId: "bot-old",
+        },
+      ],
+    });
+    const state = await attachWhatsappAfterSignin(deps(fake), request);
+    expect(state).toBe("agent_has_other_number");
+    // The person's other number keeps the agent; the new number linked nowhere.
+    expect(fake.identities).toHaveLength(1);
+    expect(fake.outbound).toHaveLength(0);
+  });
+
+  it("a person with no space reports not_attempted", async () => {
+    const fake = linkFake({ members: [] });
+    const state = await attachWhatsappAfterSignin(deps(fake), request);
+    expect(state).toBe("not_attempted");
+    expect(fake.identities).toHaveLength(0);
+  });
+
+  it("a link failure never fails the sign-in: it is caught by name", async () => {
+    const fake = linkFake({ bots: [{ id: "bot-old" }] });
+    (fake.prisma as { bot: { findFirst: unknown } }).bot.findFirst = vi.fn(async () => {
+      throw new Error("database unavailable");
+    });
+    const state = await attachWhatsappAfterSignin(deps(fake), request);
+    expect(state).toBe("not_attempted");
+  });
+
+  it("writes messaging identities only through attachMessagingIdentity", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./session.ts", import.meta.url), "utf8");
+    expect(source).not.toMatch(/messagingIdentity\s*\.\s*(create|update)\b/);
+    expect(source).toContain("attachMessagingIdentity(tx");
   });
 });

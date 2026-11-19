@@ -11,7 +11,7 @@ import {
 } from "@rakazo/ui-web";
 import { Search, SlidersHorizontal } from "lucide-react";
 import type { ReactNode, UIEvent } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PasskeyOffer } from "../../components/PasskeyOffer";
 import { PlanUsageRows, useUsageHint } from "../../components/PlanUsage";
 import { SidebarFooter } from "../../components/SidebarFooter";
@@ -21,6 +21,7 @@ import type { BotsSidebarDensity } from "../../lib/bots-sidebar-density-pref";
 import { switchOrganization, useOrganizations } from "../../lib/organizations";
 import { useQueryUserId } from "../../lib/query";
 import type { Panel } from "../../lib/right-panel-state";
+import { rpc } from "../../lib/rpc";
 import { useSignOut } from "../../lib/sign-out";
 import { ActivityList } from "../ActivityList";
 import { SpaceSearchResults } from "../SpaceSearch";
@@ -356,6 +357,28 @@ function ShellSidebarFooter({
       : null;
   const usage = useUsageHint();
   const [menuOpen, setMenuOpen] = useState(false);
+  // The person's WhatsApp link, loaded once per menu open for the account row.
+  const [whatsapp, setWhatsapp] = useState<{ connected: boolean; botName: string | null } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!menuOpen || whatsapp) return;
+    let active = true;
+    void rpc.messaging
+      .status(undefined)
+      .then((status) => {
+        if (!active) return;
+        const identity = status.identities.find((row) => row.provider === "whatsapp");
+        setWhatsapp({ connected: Boolean(identity), botName: identity?.botName ?? null });
+      })
+      .catch(() => {
+        // Messaging status unavailable: the row stays actionable in Settings.
+        if (active) setWhatsapp({ connected: false, botName: null });
+      });
+    return () => {
+      active = false;
+    };
+  }, [menuOpen, whatsapp]);
   const [logOutError, setLogOutError] = useState<string | null>(null);
   const { signingOut, logOut } = useSignOut("/sign-in", (message) => {
     // A failed sign-out reloads the page: reopen the menu so its error shows.
@@ -390,6 +413,7 @@ function ShellSidebarFooter({
           setMenuOpen(open);
           if (!open) setLogOutError(null);
         }}
+        whatsapp={whatsapp ?? undefined}
         onIntegrations={() => {
           setMenuOpen(false);
           openIntegrations();
