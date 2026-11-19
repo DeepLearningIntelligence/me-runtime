@@ -1,6 +1,7 @@
 import { ORPCError } from "@orpc/server";
 import {
   changeUserTimezone,
+  DEFAULT_FOLLOW_UP_PREFERENCE,
   effectiveModelRole,
   hasHostedModelCredits,
   isAutoReviewCheckerConfigured,
@@ -162,6 +163,22 @@ export function accountRoutes(ctx: RouterContext) {
       }),
     },
     preferences: {
+      followUps: {
+        get: authed.preferences.followUps.get.handler(async ({ context }) => {
+          const { spaceId, userId } = context.actor;
+          return (await deps.prisma.notificationPreference.findUnique({
+            where: { spaceId_userId: { spaceId, userId } },
+          })) ?? DEFAULT_FOLLOW_UP_PREFERENCE;
+        }),
+        update: authed.preferences.followUps.update.handler(({ context, input }) => {
+          const { spaceId, userId } = context.actor;
+          return deps.prisma.notificationPreference.upsert({
+            where: { spaceId_userId: { spaceId, userId } },
+            create: { spaceId, userId, ...input },
+            update: input,
+          });
+        }),
+      },
       update: authed.preferences.update.handler(async ({ context, input }): Promise<Me> => {
         const userId = context.actor.userId;
         const botAvatarSet = input.botAvatarSet;

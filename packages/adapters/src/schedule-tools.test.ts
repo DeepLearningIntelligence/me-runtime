@@ -2,6 +2,7 @@ import { routineWakeupJob } from "@rakazo/adapter-kit";
 import { ONCE_ROUTINE_CRON } from "@rakazo/core";
 import { Prisma } from "@rakazo/db";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FOLLOW_UP_RUN_INSTRUCTION } from "./follow-up.js";
 import {
   cancelScheduleFromTool,
   changeUserTimezone,
@@ -515,6 +516,118 @@ describe("schedule tool persistence", () => {
       expect.objectContaining({ type: "routine.created", payload: { name: "Morning joke" } }),
     );
     expect(enqueue).toHaveBeenCalledOnce();
+  });
+
+  it("arms a one-shot follow-up with its item, consent and the run instruction", async () => {
+    const append = vi.fn(async () => undefined);
+    const enqueue = vi.fn(async () => undefined);
+    const item = {
+      id: "item-1",
+      title: "Signed lease",
+      notes: "Waiting on the tenant",
+      updatedAt: new Date("2026-11-19T08:00:00Z"),
+    };
+    const create = vi.fn(async (args: { data: Record<string, unknown> }) => ({
+      id: "routine-1",
+      ...args.data,
+    }));
+    const deps = {
+      prisma: accountZonePrisma(
+        {
+          routine: { create, findMany: noRoutines },
+          scratchpadItem: { findFirst: vi.fn(async () => item) },
+        },
+        null,
+      ),
+      events: { append },
+      jobs: { enqueue, cancel: vi.fn(async () => undefined) },
+    } as unknown as Parameters<typeof createScheduleFromTool>[0];
+
+    const result = await createScheduleFromTool(deps, {
+      spaceId: "ws-1",
+      botId: "bot-1",
+      userId: "user-1",
+      threadId: "thread-1",
+      name: "Signed lease follow-up",
+      prompt: "Ask whether the lease arrived",
+      followUpItemId: "item-1",
+      schedule: { runAt: "2026-11-20T09:00:00Z" },
+    });
+
+    expect(result).toMatchObject({ ok: true, routineId: "routine-1", oneShot: true });
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          followUp: expect.objectContaining({ itemId: "item-1", status: "armed" }),
+          prompt: expect.stringContaining(FOLLOW_UP_RUN_INSTRUCTION),
+        }),
+      }),
+    );
+  });
+
+  it("refuses a repeating follow-up", async () => {
+    const create = vi.fn();
+    const deps = {
+      prisma: accountZonePrisma(
+        {
+          routine: { create, findMany: noRoutines },
+          scratchpadItem: {
+            findFirst: vi.fn(async () => ({
+              id: "item-1",
+              title: "Signed lease",
+              notes: "",
+              updatedAt: new Date("2026-11-19T08:00:00Z"),
+            })),
+          },
+        },
+        null,
+      ),
+      events: { append: vi.fn() },
+      jobs: { enqueue: vi.fn() },
+    } as unknown as Parameters<typeof createScheduleFromTool>[0];
+
+    const result = await createScheduleFromTool(deps, {
+      spaceId: "ws-1",
+      botId: "bot-1",
+      userId: "user-1",
+      threadId: "thread-1",
+      name: "Follow-up",
+      prompt: "Check",
+      followUpItemId: "item-1",
+      schedule: { every: 1, unit: "minutes" },
+    });
+
+    expect(result).toEqual({ error: "A follow-up must run once, at an agreed time." });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a follow-up on a closed or foreign item", async () => {
+    const deps = {
+      prisma: accountZonePrisma(
+        {
+          routine: { create: vi.fn(), findMany: noRoutines },
+          scratchpadItem: { findFirst: async () => null },
+        },
+        null,
+      ),
+      events: { append: vi.fn() },
+      jobs: { enqueue: vi.fn() },
+    } as unknown as Parameters<typeof createScheduleFromTool>[0];
+
+    const result = await createScheduleFromTool(deps, {
+      spaceId: "ws-1",
+      botId: "bot-1",
+      userId: "user-1",
+      threadId: "thread-1",
+      name: "Follow-up",
+      prompt: "Check",
+      followUpItemId: "item-1",
+      schedule: { runAt: "2026-11-20T09:00:00Z" },
+    });
+
+    expect(result).toEqual({
+      error: "A follow-up needs an open scratchpad item in this bot's Space.",
+    });
   });
 
   it.each([

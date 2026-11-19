@@ -939,10 +939,29 @@ export interface TransactionalEmail {
 
 export type MessagingReceipt = "typing" | "reaction";
 
+/**
+ * What one platform can show when a message arrives: one receipt, several, or
+ * none. Several lets the receipt policy choose per message.
+ */
+export type MessagingReceiptSupport = MessagingReceipt | readonly MessagingReceipt[] | null;
+
+/** How a surface shows that it received a message. */
+export type MessagingReceiptAction = { kind: "typing" } | { kind: "reaction"; emoji: string };
+
+/** What a person sent, provider-neutral, so the receipt fits the message. */
+export type MessagingMedium =
+  | "text"
+  | "voice"
+  | "image"
+  | "sticker"
+  | "document"
+  | "location"
+  | "other";
+
 export interface MessagingCapabilities {
   direct: boolean;
   groups: boolean;
-  receipt: MessagingReceipt | null;
+  receipt: MessagingReceiptSupport;
   /** Sends image and file attachments. Absent means replies go out as text only. */
   files?: boolean;
 }
@@ -988,6 +1007,8 @@ export interface MessagingInboundMessage {
   handle: string;
   /** Opaque conversation id — pass back to sendToThread to reply. */
   threadId: string;
+  /** What the person sent, for the acknowledgement; defaults to text. */
+  medium?: MessagingMedium;
   /** True for a 1:1 conversation with the deployment's line/bot. */
   isDirect: boolean;
   /** Sender address within the provider (E.164, Slack user id, …). */

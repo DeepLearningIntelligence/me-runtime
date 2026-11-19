@@ -1822,7 +1822,11 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
                       )
                     : disabledBuiltinTools,
                 offeredFleetTools: offeredFleetTools(strategicBuiltins),
-                followUpsOffered: followUpsOffered(strategicBuiltins, ownerStartedRun),
+                followUpsOffered: followUpsOffered(
+                  strategicBuiltins,
+                  ownerStartedRun,
+                  bot.dailyCheckIns,
+                ),
                 backgroundHelpersAllowed: backgroundHelpersAllowed({
                   threadBotId: thread.botId,
                   botId: bot.id,

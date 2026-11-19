@@ -10,6 +10,7 @@ import type {
 import type { MessagingInstallations } from "@rakazo/adapters";
 import {
   applyMessagingOutboundStatus,
+  createMessagingReceipts,
   createMessagingTeamChatHistory,
   createMessagingTeamChatSender,
 } from "@rakazo/adapters";
@@ -22,7 +23,6 @@ import type { AppEnv } from "./env.js";
 import { whatsAppSignInHandler } from "./me/phone-signin/index.js";
 import { createWhatsAppRouter } from "./me/whatsapp-router.js";
 import { createMessagingInboundHandler } from "./messaging-inbound.js";
-import { createMessagingReceipts } from "./messaging-receipts.js";
 import { mountMessagingWebhookRoutes } from "./messaging-webhook.js";
 import { TeamChatBridge } from "./team-chat-bridge.js";
 import { createTeamChatInboundHandler } from "./team-chat-inbound.js";

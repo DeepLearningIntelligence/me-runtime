@@ -1,6 +1,7 @@
 import type { AdapterContext, MessagingSurface } from "@rakazo/adapter-kit";
 import type { PrismaClient } from "@rakazo/db";
 import { SpaceDeletionInProgressError } from "@rakazo/db";
+import { getLogger } from "@rakazo/logging";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatSdkMessagingSurface, MessagingSendError } from "./chat-sdk-surface.js";
 import type { MessagingDeliveryDeps } from "./messaging-delivery.js";
@@ -73,7 +74,8 @@ function matchesWhere(row: Record<string, unknown>, where: OutboundRowFilter): b
     if (key === "updatedAt" && row[key] === undefined)
       return compareBound(new Date(), (value as { gt: unknown }).gt, true);
     if (value !== null && typeof value === "object") {
-      const bound = value as { lt?: unknown; gt?: unknown };
+      const bound = value as { lt?: unknown; gt?: unknown; in?: unknown[] };
+      if (bound.in) return bound.in.includes(row[key]);
       if (bound.lt !== undefined) return compareBound(row[key], bound.lt, false);
       if (bound.gt !== undefined) return compareBound(row[key], bound.gt, true);
       return false;
@@ -108,6 +110,10 @@ function createFakeSurface(sendError?: Error) {
     platforms: () => [
       { provider: "sendblue", capabilities: { direct: true, groups: true, receipt: "typing" } },
       {
+        provider: "whatsapp",
+        capabilities: { direct: true, groups: false, receipt: ["typing", "reaction"] },
+      },
+      {
         provider: "telegram",
         capabilities: { direct: true, groups: false, receipt: null, files: true },
       },
@@ -136,6 +142,7 @@ function createDeps(overrides: {
   connectionStatus?: string | null;
   blockedBot?: string;
   artifacts?: Array<Record<string, unknown>>;
+  sourceMessage?: { runId: string; clientNonce?: string | null } | null;
 }) {
   const rows = [...(overrides.outboundRows ?? [])] as Array<Record<string, unknown>>;
   const { messaging, sendToThread, openDirectThread } = createFakeSurface(overrides.sendError);
@@ -159,7 +166,10 @@ function createDeps(overrides: {
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
     message: {
-      findUnique: vi.fn(async (): Promise<{ thread: { userId: string } } | null> => null),
+      findUnique: vi.fn(
+        async (args: { select?: { runId?: boolean } }): Promise<Record<string, unknown> | null> =>
+          args.select?.runId ? (overrides.sourceMessage ?? null) : null,
+      ),
       findMany: vi.fn(
         async () =>
           overrides.messages ?? [
@@ -327,6 +337,164 @@ describe("deliverMessagingOutbound", () => {
       where: { id: "run-1", trigger: "messaging" },
       data: { messagingMirroredAt: expect.any(Date) },
     });
+  });
+
+  it("settles the message it answers once the reply is out", async () => {
+    const deps = createDeps({
+      identity: { provider: "whatsapp", dmThreadId: "whatsapp:15551234567" },
+      run: {
+        ...messagingRun,
+        sourceMessage: {
+          blocks: [{ kind: "text", text: "hi" }],
+          clientNonce: "messaging:whatsapp:wamid-1",
+        },
+      },
+      sourceMessage: { runId: "run-1" },
+    });
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    expect(deps.messaging.acknowledge).toHaveBeenCalledWith(
+      "whatsapp:15551234567",
+      "wamid-1",
+      { kind: "reaction", emoji: "✅" },
+      expect.anything(),
+    );
+    expect(deps.messaging.acknowledge).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles a reply that asks a question with thinking", async () => {
+    const deps = createDeps({
+      identity: { provider: "whatsapp", dmThreadId: "whatsapp:15551234567" },
+      messages: [{ id: "m-1", blocks: [{ kind: "text", text: "Want the list?" }] }],
+      run: {
+        ...messagingRun,
+        sourceMessage: {
+          blocks: [{ kind: "text", text: "hi" }],
+          clientNonce: "messaging:whatsapp:wamid-1",
+        },
+      },
+      sourceMessage: { runId: "run-1" },
+    });
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    expect(deps.messaging.acknowledge).toHaveBeenCalledWith(
+      "whatsapp:15551234567",
+      "wamid-1",
+      { kind: "reaction", emoji: "🤔" },
+      expect.anything(),
+    );
+  });
+
+  it("does not settle a reply the worker cannot tie to an inbound message", async () => {
+    const deps = createDeps({});
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    expect(deps.messaging.acknowledge).not.toHaveBeenCalled();
+  });
+
+  it("settles once for a reply split into several parts", async () => {
+    const deps = createDeps({
+      identity: { provider: "whatsapp", dmThreadId: "whatsapp:15551234567" },
+      messages: [{ id: "m-1", blocks: [{ kind: "text", text: "a".repeat(5_000) }] }],
+      run: {
+        ...messagingRun,
+        sourceMessage: {
+          blocks: [{ kind: "text", text: "hi" }],
+          clientNonce: "messaging:whatsapp:wamid-1",
+        },
+      },
+      sourceMessage: { runId: "run-1" },
+    });
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    expect(deps.sendToThread.mock.calls.length).toBeGreaterThan(1);
+    expect(deps.messaging.acknowledge).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves no settle when the send fails", async () => {
+    const deps = createDeps({
+      identity: { provider: "whatsapp", dmThreadId: "whatsapp:15551234567" },
+      sendError: new Error("provider down"),
+      run: {
+        ...messagingRun,
+        sourceMessage: {
+          blocks: [{ kind: "text", text: "hi" }],
+          clientNonce: "messaging:whatsapp:wamid-1",
+        },
+      },
+      sourceMessage: { runId: "run-1" },
+    });
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    expect(deps.messaging.acknowledge).not.toHaveBeenCalled();
+    expect(deps.rows).toEqual([expect.objectContaining({ status: "pending" })]);
+  });
+
+  it("settles once when a failed delivery is retried", async () => {
+    const deps = createDeps({
+      identity: { provider: "whatsapp", dmThreadId: "whatsapp:15551234567" },
+      sendError: new Error("provider down"),
+      run: {
+        ...messagingRun,
+        sourceMessage: {
+          blocks: [{ kind: "text", text: "hi" }],
+          clientNonce: "messaging:whatsapp:wamid-1",
+        },
+      },
+      sourceMessage: { runId: "run-1" },
+    });
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+    expect(deps.messaging.acknowledge).not.toHaveBeenCalled();
+
+    deps.sendToThread.mockResolvedValue({ handle: "handle-out-1" });
+    deps.rows[0]!.nextAttemptAt = null;
+    await deliverMessagingOutbound(deps, {}, context);
+
+    expect(deps.messaging.acknowledge).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the reply delivered when the settle fails", async () => {
+    const error = vi.spyOn(getLogger(), "error");
+    const deps = createDeps({
+      identity: { provider: "whatsapp", dmThreadId: "whatsapp:15551234567" },
+      run: {
+        ...messagingRun,
+        sourceMessage: {
+          blocks: [{ kind: "text", text: "hi" }],
+          clientNonce: "messaging:whatsapp:wamid-1",
+        },
+      },
+      sourceMessage: { runId: "run-1" },
+    });
+    deps.messaging.acknowledge = vi.fn(async () => {
+      throw new Error("reaction rejected");
+    });
+
+    await expect(
+      deliverMessagingOutbound(deps, { runId: "run-1" }, context),
+    ).resolves.toBeUndefined();
+    expect(deps.rows).toEqual([expect.objectContaining({ status: "sent" })]);
+    expect(error).toHaveBeenCalledWith("messaging receipt error", {
+      provider: "whatsapp",
+      reason: "reaction rejected",
+    });
+  });
+
+  it("does not settle a progress post before the run finishes", async () => {
+    const deps = createDeps({
+      identity: { provider: "whatsapp", dmThreadId: "whatsapp:15551234567" },
+      run: {
+        ...messagingRun,
+        sourceMessage: {
+          blocks: [{ kind: "text", text: "hi" }],
+          clientNonce: "messaging:whatsapp:wamid-1",
+        },
+      },
+      sourceMessage: { runId: "run-1", clientNonce: userProgressClientNonce("run-1") },
+    });
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    expect(deps.messaging.acknowledge).not.toHaveBeenCalled();
   });
 
   it("sends a page the bot named as its title, never as an app-only page link", async () => {

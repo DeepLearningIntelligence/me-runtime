@@ -12,7 +12,11 @@ import {
   WhatsAppApiError,
 } from "@chat-adapter/whatsapp";
 import type { HttpInstance } from "@larksuiteoapi/node-sdk";
-import type { MessagingInboundMessage, MessagingOutboundStatus } from "@rakazo/adapter-kit";
+import type {
+  MessagingInboundMessage,
+  MessagingMedium,
+  MessagingOutboundStatus,
+} from "@rakazo/adapter-kit";
 import { getLogger } from "@rakazo/logging";
 import type { Adapter } from "chat";
 import { ConsoleLogger, convertEmojiPlaceholders, markdownToPlainText } from "chat";
@@ -310,13 +314,14 @@ export function messagingPlatformsFromEnv(
   ) {
     platforms.push({
       provider: "whatsapp",
-      capabilities: { direct: true, groups: false, receipt: null },
+      capabilities: { direct: true, groups: false, receipt: ["typing", "reaction"] },
       adapter: createWhatsAppAdapter({
         accessToken: env.whatsappAccessToken,
         phoneNumberId: env.whatsappPhoneNumberId,
         appSecret: env.whatsappAppSecret,
         verifyToken: env.whatsappVerifyToken,
       }),
+      medium: whatsappMedium,
       peekStatuses: parseWhatsAppStatuses,
       isPermanentSendError: (error) =>
         error instanceof WhatsAppApiError && error.errorCode === WHATSAPP_REENGAGEMENT_REQUIRED,
@@ -611,6 +616,30 @@ export function parseWhatsAppStatuses(payload: unknown): MessagingOutboundStatus
     }
   }
   return statuses;
+}
+
+/**
+ * WhatsApp names the message type on the wire, which is the medium the person
+ * sent. `audio` is a shared audio file, not a voice note, so it stays other.
+ */
+function whatsappMedium(raw: unknown): MessagingMedium {
+  const type = asRecord(asRecord(raw)?.message)?.type;
+  switch (type) {
+    case "text":
+      return "text";
+    case "voice":
+      return "voice";
+    case "image":
+      return "image";
+    case "sticker":
+      return "sticker";
+    case "document":
+      return "document";
+    case "location":
+      return "location";
+    default:
+      return "other";
+  }
 }
 
 /** Slack's marker for a dispatched event; it turns Slack's retries into no-ops. */

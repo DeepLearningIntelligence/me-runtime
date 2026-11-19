@@ -19,6 +19,12 @@ import { Prisma, runAsSystemInTransaction } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 
 import { localDateTime } from "./current-time.js";
+import {
+  followUpItemForArming,
+  followUpRoutinePrompt,
+  followUpState,
+  parseFollowUpState,
+} from "./follow-up.js";
 import { finishRoutineHandover } from "./routine-handover.js";
 import { validateRoutineWatch } from "./routine-watch.js";
 
@@ -491,14 +497,28 @@ export async function createScheduleFromTool(
     prompt: string;
     timezone?: string;
     schedule: Record<string, unknown>;
+    /** The open item a one-shot follow-up checks; absent for a normal schedule. */
+    followUpItemId?: string;
   },
 ) {
   const routineBotId = input.target?.botId ?? input.botId;
   const routineThreadId = input.target?.threadId ?? input.threadId;
   const name = input.name.trim();
   const prompt = input.prompt.trim();
+  const followUpItemId = input.followUpItemId?.trim();
   if (!name) return { error: "name is required." };
   if (!prompt) return { error: "prompt is required." };
+  const followUpItem = followUpItemId
+    ? await followUpItemForArming(deps.prisma, {
+        itemId: followUpItemId,
+        spaceId: input.spaceId,
+        botId: routineBotId,
+      })
+    : null;
+  if (followUpItemId && !followUpItem) {
+    return { error: "A follow-up needs an open scratchpad item in this bot's Space." };
+  }
+  const routinePrompt = followUpItem ? followUpRoutinePrompt(followUpItem, prompt) : prompt;
 
   const conflict = await activeRoutineConflict(deps.prisma, {
     spaceId: input.spaceId,
@@ -515,6 +535,7 @@ export async function createScheduleFromTool(
     }
   }
   if (input.schedule.watch !== undefined) {
+    if (followUpItemId) return { error: "A follow-up is a one-shot schedule, not a watch." };
     return createWatchFromTool(deps, { ...input, name, prompt });
   }
   // A named zone needs no coordination with a zone change. The account's zone is read
@@ -523,6 +544,9 @@ export async function createScheduleFromTool(
   const insertRoutine = (client: Pick<Prisma.TransactionClient, "routine">, timezone: string) => {
     const resolved = resolveScheduleTiming(input.schedule, timezone);
     if (!resolved.ok) return { error: resolved.error } as const;
+    if (followUpItem && !resolved.oneShot) {
+      return { error: "A follow-up must run once, at an agreed time." } as const;
+    }
     wakeAt = resolved.nextRunAt;
     return client.routine.create({
       data: {
@@ -531,12 +555,20 @@ export async function createScheduleFromTool(
         userId: input.userId,
         threadId: routineThreadId,
         name,
-        prompt,
+        prompt: routinePrompt,
         crons: [resolved.cron],
         timezone,
         notify: true,
         active: true,
         nextRunAt: resolved.nextRunAt,
+        ...(followUpItem
+          ? {
+              followUp: followUpState({
+                item: followUpItem,
+                agreedAt: new Date(),
+              }) as Prisma.InputJsonValue,
+            }
+          : {}),
       },
     });
   };
@@ -594,6 +626,7 @@ export function scheduleCreateFields(args: Record<string, unknown>) {
     prompt: String(args.prompt ?? ""),
     timezone: args.timezone ? String(args.timezone) : undefined,
     schedule: compactScheduleInput({ ...scheduleTimingArgs(args), watch: args.watch }),
+    followUpItemId: args.followUpItemId ? String(args.followUpItemId) : undefined,
   };
 }
 
@@ -621,13 +654,23 @@ export async function scheduleCreateError(
   }
   if (input.schedule.watch !== undefined) {
     const parsed = scheduleWatch(input.schedule);
-    return parsed.success ? undefined : parsed.error;
+    if (!parsed.success) return parsed.error;
+    return input.followUpItemId ? "A follow-up is a one-shot schedule, not a watch." : undefined;
   }
   const resolved = resolveScheduleTiming(
     input.schedule,
     input.timezone ?? (await userTimeZone(prisma, input.userId)),
   );
-  return resolved.ok ? undefined : resolved.error;
+  if (!resolved.ok) return resolved.error;
+  const followUpItemId = input.followUpItemId?.trim();
+  if (!followUpItemId) return undefined;
+  if (!resolved.oneShot) return "A follow-up must run once, at an agreed time.";
+  const item = await followUpItemForArming(prisma, {
+    itemId: followUpItemId,
+    spaceId: input.spaceId,
+    botId: input.botId,
+  });
+  return item ? undefined : "A follow-up needs an open scratchpad item in this bot's Space.";
 }
 
 /** The watch of a `schedule_create` call, which takes no other timing. */
@@ -927,6 +970,13 @@ export async function updateScheduleFromTool(
   if (!active) nextRunAt = null;
   const timingChanged =
     retime || active !== existing.active || nextRunAt?.getTime() !== existing.nextRunAt?.getTime();
+  const dismissed = input.active === false && existing.followUp != null;
+  const dismissedState = dismissed
+    ? (() => {
+        const parsed = parseFollowUpState(existing.followUp);
+        return parsed ? { ...parsed, status: "dismissed" as const } : existing.followUp;
+      })()
+    : undefined;
 
   // The scope is part of the write, so the routine cannot change hands between the read and it.
   // A name or prompt edit writes only those fields, so a run claimed meanwhile keeps its advance;
@@ -948,6 +998,9 @@ export async function updateScheduleFromTool(
       ...(name === undefined ? {} : { name }),
       ...(prompt === undefined ? {} : { prompt }),
       ...(timingChanged ? { crons, timezone, active, nextRunAt } : {}),
+      ...(dismissedState === undefined
+        ? {}
+        : { followUp: dismissedState as Prisma.InputJsonValue }),
     },
   });
   if (count === 0) {
@@ -961,6 +1014,13 @@ export async function updateScheduleFromTool(
   if (timingChanged) {
     if (active && nextRunAt) await deps.jobs.enqueue(routineWakeupJob(existing.id, nextRunAt));
     else if (existing.active) await deps.jobs.cancel(routineJobKey(existing.id));
+  }
+  if (dismissed) {
+    getLogger().info("follow_up.silent", {
+      "followUp.id": existing.id,
+      "followUp.itemId": parseFollowUpState(existing.followUp)?.itemId ?? "",
+      "followUp.reason": "dismissed",
+    });
   }
   if (existing.userId !== input.userId) {
     await finishRoutineHandover(deps, {
@@ -1035,6 +1095,13 @@ export async function cancelScheduleFromTool(
   const { count } = await deps.prisma.routine.deleteMany({ where: { ...scope, id: existing.id } });
   if (count === 0) return { error: "Schedule not found." };
   await deps.jobs.cancel(routineJobKey(existing.id));
+  if (existing.followUp != null) {
+    getLogger().info("follow_up.silent", {
+      "followUp.id": existing.id,
+      "followUp.itemId": parseFollowUpState(existing.followUp)?.itemId ?? "",
+      "followUp.reason": "dismissed",
+    });
+  }
   return { ok: true as const, routineId: existing.id, name: existing.name };
 }
 

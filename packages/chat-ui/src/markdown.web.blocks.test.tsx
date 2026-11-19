@@ -128,6 +128,7 @@ describe("web markdown directive streaming", () => {
   it("renders an unclosed callout as text and never throws", async () => {
     const view = await mount(':::callout{type="info" title="Heads up"}\n\nPartial **text**', true);
     expect(view.container.querySelector(".rk-chat-callout")).toBeNull();
+    expect(view.container.querySelector(".rk-chat-directive-literal")).not.toBeNull();
     expect(view.container.textContent).toContain(":::callout");
     expect(view.container.textContent).toContain("Partial");
     expect(view.container.querySelector("strong")?.textContent).toBe("text");
