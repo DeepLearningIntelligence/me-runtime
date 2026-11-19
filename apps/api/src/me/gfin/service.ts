@@ -54,8 +54,10 @@ export async function ensureGfinConnection(
     where: { userId: user.id, slug: GFIN_CONNECTION_SLUG },
     select: { id: true, spaceId: true, name: true, secretId: true },
   });
-  // Already connected: nothing to resolve, so the per-sign-in path stays off the network.
-  const connectedAlready = Boolean(existing?.secretId) && existing?.name === GFIN_PERSONAL_LABEL;
+  // A credential on the row is the connected lane. Nothing else writes one, so the lane is
+  // never inferred from the display label: a person who renames the server changes text, not
+  // their credential, and an outage cannot downgrade or delete it.
+  const connectedAlready = Boolean(existing?.secretId);
   let key: string | undefined;
   if (!connectedAlready) {
     try {
@@ -71,8 +73,6 @@ export async function ensureGfinConnection(
       });
     }
   }
-  // A row's credential is the connected lane only when this service labelled it personal;
-  // a public-labelled row carrying one is a legacy house-key row and is cleared below.
   const mode: GfinMode = key !== undefined || connectedAlready ? "connected" : "public";
   const label = labelFor(mode);
 
@@ -84,15 +84,9 @@ export async function ensureGfinConnection(
     await rekeyConnection(deps, user.id, existing, key, label);
     action = "rekeyed";
   } else {
-    let changed = false;
-    if (existing.secretId && mode === "public") {
-      await clearConnectionCredential(deps, existing.id, existing.secretId);
-      changed = true;
-    }
-    if (existing.name !== label.name) {
-      await relabelConnection(deps.prisma, existing.id, label);
-      changed = true;
-    }
+    // Only the label converges here; the credential is never detached on a sign-in.
+    const changed = existing.name !== label.name;
+    if (changed) await relabelConnection(deps.prisma, existing.id, label);
     action = changed ? "converged" : "current";
   }
   const disabled = await disableDuplicateEndpointRows(deps, user.id);
@@ -232,16 +226,6 @@ async function relabelConnection(
  * Legacy rows carried the deployment house key as their secret. A person's row must never
  * hold it, so the credential is detached and its secret deleted; the public row stays.
  */
-async function clearConnectionCredential(
-  deps: GfinConnectionDeps,
-  id: string,
-  secretId: string,
-): Promise<void> {
-  await deps.prisma.$transaction(async (tx) => {
-    await tx.mcpServer.update({ where: { id }, data: { secretId: null } });
-    await tx.secret.deleteMany({ where: { id: secretId } });
-  });
-}
 
 /**
  * A second row pointing at the same GFIN endpoint would reach the same account with a
