@@ -713,6 +713,7 @@ async function deliverRow(
       context,
     );
     accepted = true;
+    await settleReply(deps, identity, threadId, row, context);
     await deps.prisma.messagingOutbound.updateMany({
       where: { id: row.id },
       data: { providerHandle: sent.handle },
@@ -721,7 +722,6 @@ async function deliverRow(
       where: { id: identity.id },
       data: { outboundSinceInbound: { increment: 1 } },
     });
-    await settleReply(deps, identity, threadId, row, context);
     return true;
   } catch (error) {
     if (accepted) {
@@ -849,9 +849,9 @@ async function resolveDirectThread(
 }
 
 /**
- * The reply is out: react to the message it answers with the outcome. Runs
- * only once the conversation has nothing pending, so the last part of a
- * multi-part reply is the one that settles it.
+ * The reply is out: react to the message it answers with the outcome. A run
+ * settles only after it finishes and its last queued part goes out, so a
+ * progress post or an earlier part never gets its own reaction.
  */
 async function settleReply(
   deps: MessagingDeliveryDeps,
@@ -862,28 +862,29 @@ async function settleReply(
 ): Promise<void> {
   if (!row.sourceMessageId) return;
   try {
-    const pending = await deps.prisma.messagingOutbound.findFirst({
-      where: { status: "pending", identityId: identity.id },
-      select: { id: true },
-    });
-    if (pending) return;
     const source = await deps.prisma.message.findUnique({
       where: { id: row.sourceMessageId },
-      select: { runId: true },
+      select: { runId: true, clientNonce: true },
     });
-    if (!source?.runId) return;
+    // A progress post goes out while the run is still writing; only the reply settles.
+    if (!source?.runId || isUserProgressClientNonce(source.clientNonce)) return;
     const run = await deps.prisma.run.findUnique({
       where: { id: source.runId },
       select: { trigger: true, sourceMessage: { select: { clientNonce: true } } },
     });
     if (run?.trigger !== "messaging") return;
-    const handle = messagingInboundHandle(identity.provider, run.sourceMessage?.clientNonce);
-    if (!handle) return;
     const replies = await deps.prisma.message.findMany({
       where: { runId: source.runId, role: "bot" },
       orderBy: { seq: "asc" },
-      select: { blocks: true },
+      select: { id: true, blocks: true },
     });
+    const pending = await deps.prisma.messagingOutbound.findFirst({
+      where: { status: "pending", sourceMessageId: { in: replies.map((reply) => reply.id) } },
+      select: { id: true },
+    });
+    if (pending) return;
+    const handle = messagingInboundHandle(identity.provider, run.sourceMessage?.clientNonce);
+    if (!handle) return;
     const reply = replies.map((message) => extractText(message.blocks, new Set())).join("\n");
     await settleMessageReceipt(deps.messaging, { threadId, handle, reply }, context);
   } catch (error) {

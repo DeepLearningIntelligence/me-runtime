@@ -300,6 +300,17 @@ describe("settleMessageReceipt", () => {
     expect(messaging.acknowledge).not.toHaveBeenCalled();
   });
 
+  it("does not settle a platform that only types", async () => {
+    const messaging = fakeMessaging();
+    await settleMessageReceipt(
+      messaging,
+      { threadId: "sendblue:dm-1", handle: "h-1", reply: "Done." },
+      context,
+    );
+
+    expect(messaging.acknowledge).not.toHaveBeenCalled();
+  });
+
   it("logs a failed settle with its provider and reason", async () => {
     const error = vi.spyOn(getLogger(), "error");
     const messaging = fakeMessaging();
