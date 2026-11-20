@@ -68,6 +68,7 @@ export interface MessagingDeliveryDeps {
   events: Pick<ThreadEvents, "sendUserMessage" | "notify">;
   jobs: Pick<JobPublisher, "enqueue">;
   artifacts: Pick<ArtifactStore, "get">;
+  webOrigin?: string;
 }
 
 type IdentityRow = {
@@ -98,9 +99,10 @@ export async function mirrorMessagingOutbound(
   deps: MessagingDeliveryDeps,
   runId: string,
 ): Promise<void> {
-  await mirrorRun(deps, runId);
+  const run = await mirrorRun(deps, runId);
+  if (run?.trigger !== "messaging" || !["completed", "waiting_input"].includes(run.status)) return;
   await deps.prisma.run.updateMany({
-    where: { id: runId, trigger: "messaging" },
+    where: { id: runId, trigger: "messaging", status: run.status },
     data: { messagingMirroredAt: new Date() },
   });
 }
@@ -120,11 +122,7 @@ export async function mirrorMessagingProgress(
   await mirrorRun(deps, runId, true);
 }
 
-async function mirrorRun(
-  deps: MessagingDeliveryDeps,
-  runId: string,
-  progress = false,
-): Promise<void> {
+async function mirrorRun(deps: MessagingDeliveryDeps, runId: string, progress = false) {
   const run = await deps.prisma.run.findUnique({
     where: { id: runId },
     include: { sourceMessage: true },
@@ -139,7 +137,7 @@ async function mirrorRun(
     );
     if (channelBlock) {
       if (!progress) await mirrorChannelRun(deps, run, channelBlock);
-      return;
+      return run;
     }
   } else if (progress || run.trigger !== "bot_message") {
     // Mirror inbound messaging runs and, once they end, delegated bot_message replies only.
@@ -152,7 +150,7 @@ async function mirrorRun(
   });
   // The linked DM is one person's chat. In a shared Space another member's run on this bot, such
   // as a reply to their message_bot, stays in the app instead of reaching that person's chat app.
-  if (!identity || identity.userId !== run.userId) return;
+  if (!identity || identity.userId !== run.userId) return run;
 
   // bot_message runs can carry the bot's user-facing reply after a delegate wake.
   // extractText keeps only text and page titles, so inter-bot chatter blocks never leak out.
@@ -169,8 +167,24 @@ async function mirrorRun(
   // The whole reply takes one explicit, non-overlapping range, like a group
   // reply, so a concurrent DM mirror cannot interleave its parts.
   const linkedPages = linkedPageIds(messages);
+  const mirrorApproval =
+    !progress &&
+    run.trigger === "messaging" &&
+    run.status === "waiting_input" &&
+    identity.provider === "whatsapp" &&
+    messagingInboundHandle("whatsapp", run.sourceMessage?.clientNonce) !== null;
   const rowsByMessage = messages.map((message) => {
-    const body = extractText(message.blocks, linkedPages);
+    let body = extractText(message.blocks, linkedPages);
+    if (mirrorApproval && hasPendingApproval(message.blocks)) {
+      const path = `/app/${encodeURIComponent(run.botId)}?m=${encodeURIComponent(message.id)}`;
+      const origin = deps.webOrigin;
+      const link =
+        origin && /^https?:\/\//i.test(origin) && URL.canParse(origin)
+          ? ` ${new URL(path, new URL(origin).origin).href}`
+          : "";
+      const notice = `Your request needs approval. Open the web app to review it.${link}`;
+      body = body ? `${body}\n\n${notice}` : notice;
+    }
     const parts = body ? splitOutboundBody(identity.provider, body) : [];
     return [
       ...parts.map((part, index) => ({
@@ -199,10 +213,21 @@ async function mirrorRun(
       )
     : -1;
   const rows = (held === -1 ? rowsByMessage : rowsByMessage.slice(0, held)).flat();
-  if (rows.length === 0) return;
-  // Atomic dedupe: a concurrent messaging.deliver for the same run loses on
-  // the idempotencyKey unique key instead of throwing P2002.
-  await insertOutboundRows(deps.prisma, { identityId: identity.id }, rows);
+  // The per-message key dedupes replays of the same approval and the final reply.
+  if (rows.length) await insertOutboundRows(deps.prisma, { identityId: identity.id }, rows);
+  return run;
+}
+
+function hasPendingApproval(blocks: unknown): boolean {
+  return (
+    Array.isArray(blocks) &&
+    blocks.some(
+      (block: { kind?: unknown; status?: unknown; approvalEffectId?: unknown } | null) =>
+        block?.kind === "ask" &&
+        block.status === "pending" &&
+        typeof block.approvalEffectId === "string",
+    )
+  );
 }
 
 /**

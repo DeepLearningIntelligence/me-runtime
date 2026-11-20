@@ -326,6 +326,7 @@ async function commitAnswerRunInput(
     data: {
       status: "queued",
       ...(resumedTrigger !== run.trigger ? { trigger: resumedTrigger } : {}),
+      ...(run.trigger === "messaging" ? { messagingMirroredAt: null } : {}),
       ...(choiceAsk ? { checkpoint: null } : {}),
     },
   });

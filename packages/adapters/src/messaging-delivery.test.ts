@@ -36,6 +36,7 @@ const identity = {
 };
 
 const messagingRun = {
+  status: "completed",
   id: "run-1",
   botId: "bot-1",
   userId: "user-1",
@@ -334,10 +335,86 @@ describe("deliverMessagingOutbound", () => {
       expect.objectContaining({ data: { outboundSinceInbound: { increment: 1 } } }),
     );
     expect(deps.prisma.run.updateMany).toHaveBeenCalledWith({
-      where: { id: "run-1", trigger: "messaging" },
+      where: { id: "run-1", trigger: "messaging", status: "completed" },
       data: { messagingMirroredAt: expect.any(Date) },
     });
   });
+
+  it("sends one web approval notice for a paused WhatsApp run, even when delivery replays", async () => {
+    const deps = {
+      ...createDeps({
+        run: {
+          ...messagingRun,
+          status: "waiting_input",
+          sourceMessage: {
+            ...messagingRun.sourceMessage,
+            clientNonce: "messaging:whatsapp:wamid-1",
+          },
+        },
+        identity: { provider: "whatsapp", dmThreadId: "whatsapp:dm-1" },
+        messages: [
+          {
+            id: "approval-1",
+            blocks: [
+              {
+                kind: "ask",
+                status: "pending",
+                approvalEffectId: "effect-1",
+                text: "Review before web_fetch",
+                detail: "Details stay in the web app",
+              },
+            ],
+          },
+        ],
+      }),
+      webOrigin: "https://me.example.test",
+    };
+
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    expect(deps.sendToThread).toHaveBeenCalledExactlyOnceWith(
+      {
+        threadId: "whatsapp:dm-1",
+        body: "Your request needs approval. Open the web app to review it. https://me.example.test/app/bot-1?m=approval-1",
+      },
+      context,
+    );
+    expect(deps.prisma.run.updateMany).toHaveBeenCalledWith({
+      where: { id: "run-1", trigger: "messaging", status: "waiting_input" },
+      data: { messagingMirroredAt: expect.any(Date) },
+    });
+  });
+
+  it.each([
+    ["web-originated run", "user", null, "pending", "effect-1"],
+    ["different linked user", "messaging", "messaging:whatsapp:wamid-1", "pending", "effect-1"],
+    ["different inbound provider", "messaging", "messaging:telegram:1", "pending", "effect-1"],
+    ["answered approval", "messaging", "messaging:whatsapp:wamid-1", "answered", "effect-1"],
+    ["ordinary question", "messaging", "messaging:whatsapp:wamid-1", "pending", undefined],
+  ])(
+    "does not send an approval notice for %s",
+    async (scenario, trigger, clientNonce, status, approvalEffectId) => {
+      const deps = createDeps({
+        run: {
+          ...messagingRun,
+          trigger,
+          status: "waiting_input",
+          sourceMessage: { ...messagingRun.sourceMessage, clientNonce },
+        },
+        identity: {
+          provider: "whatsapp",
+          dmThreadId: "whatsapp:dm-1",
+          userId: scenario === "different linked user" ? "another-user" : "user-1",
+        },
+        messages: [{ id: "ask-1", blocks: [{ kind: "ask", status, approvalEffectId }] }],
+      });
+
+      await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+      expect(deps.sendToThread).not.toHaveBeenCalled();
+    },
+  );
 
   it("settles the message it answers once the reply is out", async () => {
     const deps = createDeps({
