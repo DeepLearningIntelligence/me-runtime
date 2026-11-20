@@ -210,7 +210,7 @@ it("renders a product card from page facts and opens the product page", async ()
     expect(card.textContent).toContain("Shopstar");
     expect(card.textContent).toContain("Color: Cream");
     expect(card.textContent).toContain("$49.99");
-    expect(card.textContent).toContain("Add to Cart");
+    expect(card.textContent).toContain("View product");
   } finally {
     await act(async () => root.unmount());
     host.remove();

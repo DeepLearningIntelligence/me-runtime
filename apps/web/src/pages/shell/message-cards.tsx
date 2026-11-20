@@ -264,7 +264,7 @@ export function ProductCard({ block }: { block: Extract<MessageBlock, { kind: "p
         <div className="mt-2.5 flex items-center justify-between gap-3">
           <span className="text-body-lg font-medium text-foreground">{block.price}</span>
           <span className="rounded-full bg-primary px-3 py-1.5 text-label font-medium text-primary-foreground">
-            <Trans>Add to Cart</Trans>
+            <Trans>View product</Trans>
           </span>
         </div>
       </div>
