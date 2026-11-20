@@ -1,7 +1,16 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import type { Prisma, PrismaClient } from "@rakazo/db";
-import { runAsSystem, withTransactionRetry } from "@rakazo/db";
+import { isUniqueViolation, runAsSystem, withTransactionRetry } from "@rakazo/db";
+import { getLogger } from "@rakazo/logging";
+
+/** Internal marker: the quota upsert lost the first-initialization race. */
+class QuotaInitializationRace extends Error {
+  constructor(cause: unknown) {
+    super("quota initialization raced", { cause });
+    this.name = "QuotaInitializationRace";
+  }
+}
 
 /**
  * Person-to-person invitations (ME-RUN-001, D-RUN-7): the only door into the
@@ -66,15 +75,22 @@ export async function issueInvite(
   const token = newToken();
   const expiresAt = new Date(Date.now() + params.ttlDays * 86_400_000);
 
-  return withTransactionRetry(() =>
+  const issue = () =>
     prisma.$transaction(async (tx) => {
       // The quota row, created on the first issue, then owns the allowance:
       // later config changes do not silently move it for people who have rows.
-      const quota = await tx.meInviteQuota.upsert({
-        where: { userId: params.inviterUserId },
-        create: { userId: params.inviterUserId, allocation: params.allocation },
-        update: {},
-      });
+      // Catch at the operation that can race, not around the whole transaction:
+      // a token-hash collision on create must reach the caller without a retry.
+      const quota = await tx.meInviteQuota
+        .upsert({
+          where: { userId: params.inviterUserId },
+          create: { userId: params.inviterUserId, allocation: params.allocation },
+          update: {},
+        })
+        .catch((error: unknown) => {
+          if (!isUniqueViolation(error)) throw error;
+          throw new QuotaInitializationRace(error);
+        });
 
       // Compare-and-swap on the counter: the WHERE clause is what stops two
       // concurrent issues from exceeding the allocation. Reading then writing
@@ -90,8 +106,19 @@ export async function issueInvite(
         select: { id: true },
       });
       return { id: row.id, token, expiresAt };
-    }),
-  );
+    });
+
+  try {
+    return await withTransactionRetry(issue);
+  } catch (error) {
+    if (!(error instanceof QuotaInitializationRace)) throw error;
+    getLogger().warn("me invitations: quota initialization raced on issue; retrying", {
+      inviterUserId: params.inviterUserId,
+    });
+    // The failed transaction is gone; the winning row exists now, so one retry
+    // takes the update path and grants this request's link.
+    return withTransactionRetry(issue);
+  }
 }
 
 /**
@@ -216,19 +243,46 @@ export type InviteList = {
 };
 
 /**
- * The inviter's meter and their links. `allocation` only seeds the quota row on
- * the first read; the row then owns the number, so the meter never trusts a
- * value the client sent.
+ * The inviter's meter, created on first read. Allocation only seeds the row; from
+ * then on the row owns the number, so a later caller's value is never applied.
+ *
+ * Two first reads can race the insert. An empty-update upsert falls back to a
+ * select-then-insert, so the loser surfaces a unique violation instead of the
+ * winner's row; it adopts that row here, which is the same meter either reader
+ * would have seen alone.
+ */
+async function seedQuota(
+  prisma: PrismaClient,
+  params: { inviterUserId: string } & Pick<InviteSettings, "allocation">,
+) {
+  try {
+    return await prisma.meInviteQuota.upsert({
+      where: { userId: params.inviterUserId },
+      create: { userId: params.inviterUserId, allocation: params.allocation },
+      update: {},
+    });
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    // userId is this table's only unique constraint, so the winner's row is the
+    // one this reader must return; allocation and counters stay untouched.
+    getLogger().warn("me invitations: quota initialization raced; adopting the winning row", {
+      inviterUserId: params.inviterUserId,
+    });
+    return prisma.meInviteQuota.findUniqueOrThrow({
+      where: { userId: params.inviterUserId },
+    });
+  }
+}
+
+/**
+ * The inviter's meter and their links, newest first. `allocation` seeds the row
+ * only on the first read; `seedQuota` owns that rule.
  */
 export async function listInvites(
   prisma: PrismaClient,
   params: { inviterUserId: string } & Pick<InviteSettings, "allocation">,
 ): Promise<InviteList> {
-  const quota = await prisma.meInviteQuota.upsert({
-    where: { userId: params.inviterUserId },
-    create: { userId: params.inviterUserId, allocation: params.allocation },
-    update: {},
-  });
+  const quota = await seedQuota(prisma, params);
   const invites = await prisma.meInvite.findMany({
     where: { inviterId: params.inviterUserId },
     orderBy: { createdAt: "desc" },
