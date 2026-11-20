@@ -4,6 +4,7 @@ import { cancelBody } from "./http-body.js";
 
 export const MAX_AUTH_REQUEST_BYTES = 64 * 1024;
 export const MAX_RPC_REQUEST_BYTES = 16 * 1024 * 1024;
+const MAX_INVITE_INSPECTION_BYTES = 4096;
 
 /** Bound JSON entry points before their framework parsers buffer the request. */
 export function requestBodyLimit(maxSize: number, tooLargeMessage?: string): MiddlewareHandler {
@@ -73,14 +74,17 @@ export function mountApiRequestBodyLimits(app: Hono): void {
 }
 
 /**
- * Signed out, only the bodiless `health` procedure is callable, so the body
- * is discarded unread and oRPC answers as it would anyway: 401, or health.
+ * Invite inspection is the public RPC that needs a body. Discard other
+ * signed-out RPC bodies before handing the requests to oRPC.
  */
 export function rpcBodyLimit(maxUploadSizeBytes = ATTACHMENT_MAX_BYTES) {
   const signedInLimit = rpcRequestMaxBytes(maxUploadSizeBytes);
   const message = `Request body is too large. Upload limit: ${attachmentSizeLabel(maxUploadSizeBytes)} per file.`;
   return async (c: Context, signedIn: boolean) => {
     if (signedIn) return limitRequestBody(c, signedInLimit, message);
+    if (c.req.method === "POST" && c.req.path === "/rpc/invites/inspect") {
+      return limitRequestBody(c, MAX_INVITE_INSPECTION_BYTES);
+    }
     const request = c.req.raw;
     if (request.body) {
       cancelBody(request.body);

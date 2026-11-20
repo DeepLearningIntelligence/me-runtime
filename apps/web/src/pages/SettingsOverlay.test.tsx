@@ -7,6 +7,9 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 
 vi.mock("@lingui/react/macro", () => ({
+  // The overlay renders the follow-up settings panel, whose loading and error
+  // lines are Trans elements.
+  Trans: ({ children }: { children: ReactNode }) => children,
   useLingui: () => ({
     t: (strings: TemplateStringsArray, ...values: unknown[]) =>
       strings.reduce((text, part, index) => `${text}${values[index - 1] ?? ""}${part}`),
@@ -31,6 +34,7 @@ vi.mock("@rakazo/ui-web", () => ({
     React.ComponentProps<"div">,
     "children"
   >) => <div {...props}>{children}</div>,
+  Input: (props: React.ComponentProps<"input">) => <input {...props} />,
   DialogTitle: ({ children }: { children?: ReactNode }) => <h2>{children}</h2>,
   DialogDescription: ({ children }: { children?: ReactNode }) => <p>{children}</p>,
 }));
@@ -41,18 +45,32 @@ vi.mock("./AccountSettingsOverlay", () => ({
   UpdatesSettingsPanel: () => null,
   UsageSettingsPanel: () => null,
 }));
-const { memoryConfigs, memoryConfigChange, providerConfig, updaterStatus } = vi.hoisted(() => ({
-  memoryConfigs: [] as unknown[],
-  memoryConfigChange: { current: (_config: unknown) => {} },
-  providerConfig: vi.fn(async (_spaceId: string): Promise<unknown> => null),
-  updaterStatus: vi.fn(async (): Promise<unknown> => ({ installKind: "compose" })),
-}));
+const { memoryConfigs, memoryConfigChange, providerConfig, updaterStatus, followUpPreferences } =
+  vi.hoisted(() => ({
+    memoryConfigs: [] as unknown[],
+    memoryConfigChange: { current: (_config: unknown) => {} },
+    providerConfig: vi.fn(async (_spaceId: string): Promise<unknown> => null),
+    updaterStatus: vi.fn(async (): Promise<unknown> => ({ installKind: "compose" })),
+    followUpPreferences: {
+      get: async () => ({
+        followUps: true,
+        quietHoursStart: 1320,
+        quietHoursEnd: 480,
+        followUpDailyCap: 2,
+      }),
+      update: async (value: unknown) => value,
+    },
+  }));
 vi.mock("../lib/rpc", () => ({
-  rpc: { updater: { status: updaterStatus } },
-  createSpaceRpc: () => ({ memory: { providerConfig: () => providerConfig("") } }),
+  rpc: { updater: { status: updaterStatus }, preferences: { followUps: followUpPreferences } },
+  createSpaceRpc: () => ({
+    memory: { providerConfig: () => providerConfig("") },
+    preferences: { followUps: followUpPreferences },
+  }),
   selectedSpaceId: () => null,
   rpcForSpace: (spaceId: string) => ({
     memory: { providerConfig: () => providerConfig(spaceId) },
+    preferences: { followUps: followUpPreferences },
   }),
 }));
 vi.mock("./BillingSettingsPanel", () => ({ BillingSettingsPanel: () => null }));

@@ -50,6 +50,7 @@ import { createWebProvider } from "./web-provider-factory.js";
  */
 export interface RunRuntimeEnv extends PipedreamEnvironmentValues {
   dataDir: string;
+  webOrigin?: string;
   composioApiKey: string | undefined;
   /** ME_CONNECTOR_ALLOWLIST and ME_CONNECTOR_DENYLIST, parsed once. */
   connectorPolicy: ConnectorPolicy;
@@ -75,6 +76,7 @@ export function runRuntimeEnvFromProcess(source: NodeJS.ProcessEnv): RunRuntimeE
   const deploymentModel = resolveDeploymentModel(source);
   return {
     dataDir: source.DATA_DIR ?? "./data",
+    webOrigin: source.WEB_ORIGIN?.trim(),
     encryptionKey: resolveEncryptionKey(source),
     composioApiKey: source.COMPOSIO_API_KEY,
     connectorPolicy: parseConnectorPolicy(
@@ -251,6 +253,7 @@ export function createRunRuntime(
     deploymentModelKey: env.deploymentModelKey,
     deploymentModelConfigured: env.deploymentModelConfigured,
     messaging,
+    webOrigin: env.webOrigin,
     cloudAgent: deps.cloudAgent,
     paymentWallet: deps.paymentWallet,
     mediaGeneration: deps.mediaGeneration,

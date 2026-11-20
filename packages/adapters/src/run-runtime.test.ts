@@ -10,6 +10,7 @@ function previousWorkerValues(source: NodeJS.ProcessEnv) {
   const { key, configured } = resolveDeploymentModel(source);
   return {
     dataDir: source.DATA_DIR ?? "./data",
+    webOrigin: source.WEB_ORIGIN?.trim(),
     encryptionKey: resolveEncryptionKey(source),
     composioApiKey: source.COMPOSIO_API_KEY,
     connectorPolicy: parseConnectorPolicy(
@@ -43,6 +44,7 @@ describe("runRuntimeEnvFromProcess", () => {
     {
       NODE_ENV: "test",
       DATA_DIR: "/var/rakazo",
+      WEB_ORIGIN: " https://me.example.test ",
       ENCRYPTION_KEY: "offline-encryption-key-at-least-32-chars",
       COMPOSIO_API_KEY: " composio-key ",
       ME_CONNECTOR_ALLOWLIST: " slack, notion ",

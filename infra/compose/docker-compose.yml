@@ -517,6 +517,7 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       <<: *app-environment
+      WEB_ORIGIN:
       GRAPHILE_WORKER_CONCURRENCY:
     volumes:
       - ../../data:/data

@@ -43,6 +43,25 @@ describe("API request body limits", () => {
     });
   });
 
+  it("preserves the signed-out invitation inspection payload under a small limit", async () => {
+    const { app, parse } = rpcApp(false);
+    const body = { json: { token: "example-invite" } };
+    const request = (payload: unknown) =>
+      app.request("/rpc/invites/inspect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+    const response = await request(body);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(body);
+
+    const oversized = await request({ json: { token: "a".repeat(4096) } });
+    expect(oversized.status).toBe(413);
+    expect(parse).toHaveBeenCalledOnce();
+  });
+
   it("discards a signed-out RPC body unread", async () => {
     const cancel = vi.fn();
     const pull = vi.fn();
