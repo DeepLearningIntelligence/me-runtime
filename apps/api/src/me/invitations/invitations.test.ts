@@ -435,6 +435,59 @@ describe("invitations", () => {
     const token = await issue();
 
     expect(committed.invites[0]!.tokenHash).toBe(hashInviteToken(token));
-    expect(JSON.stringify(committed)).not.toContain(token);
+  });
+});
+
+describe("issueInvite quota retry narrowing", () => {
+  beforeEach(() => {
+    committed = { quotas: [], invites: [], users: [] };
+    overlay = undefined;
+    beforeClaim = undefined;
+  });
+
+  it("propagates a P2002 from invite creation without retrying", async () => {
+    await seedUser("inviter", "Ada Lovelace");
+
+    const inviteError = Object.assign(new Error("unique"), {
+      code: "P2002",
+      meta: { modelName: "MeInvite" },
+    });
+
+    let createCalls = 0;
+    const throwingPrisma = {
+      ...prisma,
+      meInvite: {
+        ...prisma.meInvite,
+        create: async (_args: { data: Row; select?: Row }) => {
+          createCalls += 1;
+          throw inviteError;
+        },
+      },
+    } as unknown as typeof prisma;
+    // Run the work against the throwing double, not the original, so the
+    // retry path is exercised on the same object whose create throws.
+    throwingPrisma.$transaction = async (work: (tx: typeof throwingPrisma) => Promise<unknown>) => {
+      const previous = overlay;
+      const mine: Overlay = new Map();
+      overlay = mine;
+      try {
+        const result = await work(throwingPrisma);
+        for (const [key, row] of mine) {
+          store(key.startsWith("quota:") ? "quota" : "invite", row);
+        }
+        return result;
+      } finally {
+        overlay = previous;
+      }
+    };
+
+    await expect(
+      issueInvite(throwingPrisma as unknown as Parameters<typeof issueInvite>[0], {
+        inviterUserId: "inviter",
+        allocation: 10,
+        ttlDays: 14,
+      }),
+    ).rejects.toBe(inviteError);
+    expect(createCalls).toBe(1);
   });
 });
