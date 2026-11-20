@@ -84,6 +84,7 @@ export function InvitesSettingsPanel() {
     setError(null);
     try {
       await rpc.invites.revoke({ id });
+      setIssued((current) => (current?.id === id ? null : current));
       await refresh();
     } catch (err) {
       setError(errorText(err, t`Could not withdraw the link.`));
@@ -126,8 +127,8 @@ export function InvitesSettingsPanel() {
         <div className="px-4 py-3">
           <div className="flex min-h-9 flex-wrap items-center justify-between gap-x-4 gap-y-2 text-body text-foreground">
             <span data-testid="invites-meter">
-              <Trans comment="The invite meter: links minted of the allowance.">
-                {used} of {allocation} used
+              <Trans comment="The invite meter: slots occupied by issued or redeemed links.">
+                {used} of {allocation} invite slots occupied
               </Trans>
             </span>
             <Button size="sm" disabled={minting || left === 0} onClick={() => void mint()}>

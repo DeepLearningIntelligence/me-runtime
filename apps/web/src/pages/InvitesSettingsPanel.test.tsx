@@ -79,10 +79,10 @@ function byTestId(testId: string): HTMLElement {
   return found as HTMLElement;
 }
 
-it("shows the meter as links minted of the allowance", async () => {
+it("shows the number of occupied invite slots", async () => {
   await act(async () => root.render(<InvitesSettingsPanel />));
   await flush();
-  expect(byTestId("invites-meter").textContent).toBe("2 of 10 used");
+  expect(byTestId("invites-meter").textContent).toBe("2 of 10 invite slots occupied");
   expect(document.body.textContent).toContain("8 left");
 });
 
@@ -119,6 +119,30 @@ it("lists minted links with their state and withdraws an unused one", async () =
   await act(async () => withdraw.click());
   await flush();
   expect(invites.revoke).toHaveBeenCalledWith({ id: "inv_1" });
+});
+
+it("clears the freshly minted link after withdrawing that invite", async () => {
+  invites.issue.mockResolvedValue({
+    id: "inv_1",
+    token: "raw-token-once",
+    expiresAt: "2026-11-30T00:00:00.000Z",
+  });
+  invites.revoke.mockResolvedValue({ ok: true });
+  await act(async () => root.render(<InvitesSettingsPanel />));
+  await flush();
+
+  const mint = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "New link",
+  )!;
+  await act(async () => mint.click());
+  expect(byTestId("invites-issued-url").textContent).toContain("raw-token-once");
+
+  const withdraw = [...byTestId("invites-list").querySelectorAll("button")].find(
+    (button) => button.textContent === "Withdraw",
+  )!;
+  await act(async () => withdraw.click());
+  expect(invites.revoke).toHaveBeenCalledWith({ id: "inv_1" });
+  expect(container.querySelector('[data-testid="invites-issued"]')).toBeNull();
 });
 
 it("offers no minting once the allowance is spent", async () => {
