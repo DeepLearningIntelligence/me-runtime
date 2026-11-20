@@ -435,6 +435,7 @@ describe("invitations", () => {
     const token = await issue();
 
     expect(committed.invites[0]!.tokenHash).toBe(hashInviteToken(token));
+    expect(JSON.stringify(committed)).not.toContain(token);
   });
 });
 
