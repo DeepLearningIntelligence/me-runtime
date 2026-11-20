@@ -78,6 +78,9 @@ function matches(row: Row, where: Row): boolean {
     if (condition !== null && typeof condition === "object" && "lt" in (condition as object)) {
       return (row[key] as number) < (condition as { lt: number }).lt;
     }
+    if (condition !== null && typeof condition === "object" && "gt" in (condition as object)) {
+      return (row[key] as number) > (condition as { gt: number }).gt;
+    }
     return row[key] === condition;
   });
 }
@@ -86,6 +89,8 @@ function apply(row: Row, data: Row): void {
   for (const [key, value] of Object.entries(data)) {
     if (value !== null && typeof value === "object" && "increment" in (value as object)) {
       row[key] = (row[key] as number) + (value as { increment: number }).increment;
+    } else if (value !== null && typeof value === "object" && "decrement" in (value as object)) {
+      row[key] = (row[key] as number) - (value as { decrement: number }).decrement;
     } else {
       row[key] = value;
     }
@@ -326,6 +331,75 @@ describe("invitations", () => {
     await expect(redeemInvite(service, { token, userId: "joiner" })).rejects.toMatchObject({
       reason: "revoked",
     });
+  });
+
+  it("withdrawing an outstanding invite returns its slot to the pool", async () => {
+    await seedUser("inviter", "Ada Lovelace");
+    const issued = await issueInvite(service, {
+      inviterUserId: "inviter",
+      allocation: 1,
+      ttlDays: 14,
+    });
+    // The only slot is held by the outstanding link.
+    await expect(
+      issueInvite(service, { inviterUserId: "inviter", allocation: 1, ttlDays: 14 }),
+    ).rejects.toMatchObject({ reason: "quota_exceeded" });
+
+    expect(await revokeInvite(service, { inviterUserId: "inviter", id: issued.id })).toBe(true);
+    expect(committed.quotas[0]!).toMatchObject({ grantedCount: 0, redeemedCount: 0 });
+    expect((await listInvites(service, { inviterUserId: "inviter", allocation: 1 })).quota).toEqual(
+      { allocation: 1, grantedCount: 0, redeemedCount: 0 },
+    );
+
+    // The released slot mints a replacement link.
+    await issueInvite(service, { inviterUserId: "inviter", allocation: 1, ttlDays: 14 });
+    expect(committed.quotas[0]!).toMatchObject({ grantedCount: 1, redeemedCount: 0 });
+    expect(committed.invites).toHaveLength(2);
+  });
+
+  it("a second withdrawal releases no slot", async () => {
+    await seedUser("inviter", "Ada Lovelace");
+    const issued = await issueInvite(service, {
+      inviterUserId: "inviter",
+      allocation: 1,
+      ttlDays: 14,
+    });
+
+    expect(await revokeInvite(service, { inviterUserId: "inviter", id: issued.id })).toBe(true);
+    expect(await revokeInvite(service, { inviterUserId: "inviter", id: issued.id })).toBe(false);
+    expect(committed.quotas[0]!).toMatchObject({ grantedCount: 0 });
+    expect(committed.invites[0]!).toMatchObject({ status: "revoked" });
+  });
+
+  it("withdrawing a redeemed invite releases no slot", async () => {
+    await seedUser("inviter", "Ada Lovelace");
+    const issued = await issueInvite(service, {
+      inviterUserId: "inviter",
+      allocation: 1,
+      ttlDays: 14,
+    });
+    await redeemInvite(service, { token: issued.token, userId: "joiner" });
+
+    expect(await revokeInvite(service, { inviterUserId: "inviter", id: issued.id })).toBe(false);
+    expect(committed.quotas[0]!).toMatchObject({ grantedCount: 1, redeemedCount: 1 });
+  });
+
+  it("redeeming still consumes an available slot", async () => {
+    await seedUser("inviter", "Ada Lovelace");
+    const issued = await issueInvite(service, {
+      inviterUserId: "inviter",
+      allocation: 1,
+      ttlDays: 14,
+    });
+
+    expect(await redeemInvite(service, { token: issued.token, userId: "joiner" })).toEqual({
+      inviterId: "inviter",
+      inviterName: "Ada Lovelace",
+    });
+    expect(committed.quotas[0]!).toMatchObject({ grantedCount: 1, redeemedCount: 1 });
+    await expect(
+      issueInvite(service, { inviterUserId: "inviter", allocation: 1, ttlDays: 14 }),
+    ).rejects.toMatchObject({ reason: "quota_exceeded" });
   });
 
   it("the welcome page sees who invited them", async () => {
