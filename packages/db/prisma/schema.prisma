@@ -120,7 +120,8 @@ model MeInviteQuota {
   /// How many links the person may issue; taken from the deployment default when
   /// their row is first created and not re-read from config afterwards.
   allocation    Int
-  /// Links minted, and links that joined, both bounded by allocation.
+  /// Links still holding a slot (minted and not withdrawn), and links that
+  /// joined, both bounded by allocation.
   grantedCount  Int   @default(0)
   redeemedCount Int   @default(0)
 

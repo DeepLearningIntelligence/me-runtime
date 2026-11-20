@@ -248,14 +248,37 @@ export async function listInvites(
   };
 }
 
-/** Withdraws an unused link. Returns false when it was already claimed or revoked. */
+/**
+ * Withdraws an unused link and returns its slot to the available pool, so a
+ * withdrawn invitation does not permanently burn the quota. Returns false when
+ * it was already claimed or revoked.
+ *
+ * The status compare-and-swap makes the release happen exactly once: a second
+ * withdrawal, or one after the link was redeemed, changes no quota. The
+ * decrement requires a granted slot; an issued link always holds one, so a
+ * missing one means the row disagrees with its invites and the withdrawal
+ * rolls back rather than corrupting the meter.
+ */
 export async function revokeInvite(
   prisma: PrismaClient,
   params: { inviterUserId: string; id: string },
 ): Promise<boolean> {
-  const revoked = await prisma.meInvite.updateMany({
-    where: { id: params.id, inviterId: params.inviterUserId, status: "issued" },
-    data: { status: "revoked", revokedAt: new Date() },
-  });
-  return revoked.count > 0;
+  return withTransactionRetry(() =>
+    prisma.$transaction(async (tx) => {
+      const revoked = await tx.meInvite.updateMany({
+        where: { id: params.id, inviterId: params.inviterUserId, status: "issued" },
+        data: { status: "revoked", revokedAt: new Date() },
+      });
+      if (revoked.count === 0) return false;
+
+      const released = await tx.meInviteQuota.updateMany({
+        where: { userId: params.inviterUserId, grantedCount: { gt: 0 } },
+        data: { grantedCount: { decrement: 1 } },
+      });
+      if (released.count === 0) {
+        throw new Error("me invitations: an issued invite has no granted slot to release");
+      }
+      return true;
+    }),
+  );
 }
