@@ -1000,6 +1000,19 @@ export interface MessagingSendResult {
   handle: string;
 }
 
+/**
+ * One card of a WhatsApp interactive media carousel: a media header, body
+ * text, and one CTA button. The Meta Cloud API wire shape, so the literal
+ * field names are the vendor's.
+ */
+export interface WhatsAppCarouselCard {
+  card_index: number;
+  type: "cta_url";
+  header: { type: "image"; image: { link: string } };
+  body?: { text: string };
+  action: { name: "cta_url"; parameters: { display_text: string; url: string } };
+}
+
 /** Provider-neutral inbound message after platform webhook parsing. */
 export type TeamChatMessageKind = "direct" | "mention" | "ambient";
 

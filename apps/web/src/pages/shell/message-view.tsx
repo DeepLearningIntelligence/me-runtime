@@ -58,7 +58,7 @@ import {
   ChartBlockView,
   ChoiceCard,
   McpApprovalCard,
-  ProductCard,
+  ProductCarousel,
   PublicationCardView,
 } from "./message-cards";
 import { MessageHoverActions } from "./message-hover-actions";
@@ -507,9 +507,17 @@ export const MessageView = memo(function MessageView({
             );
           }
           if (block.kind === "product_card") {
+            // The whole message's products render as one carousel, in their
+            // block order; the later product_card blocks are its slides.
+            const firstProductIndex = blocks.findIndex((b) => b?.kind === "product_card");
+            if (i !== firstProductIndex) return null;
+            const productBlocks = blocks.filter(
+              (b): b is Extract<MessageBlock, { kind: "product_card" }> =>
+                b?.kind === "product_card",
+            );
             return (
               <div key={i} className="flex justify-start">
-                <ProductCard block={block} />
+                <ProductCarousel blocks={productBlocks} />
               </div>
             );
           }

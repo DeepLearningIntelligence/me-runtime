@@ -35,6 +35,10 @@ import { Domain } from "./lark/thread-id.js";
 import { lazyChatAdapter } from "./lazy-chat-adapter.js";
 import { LazyPhotonAdapter } from "./photon/lazy-adapter.js";
 import { isVitestRuntime } from "./test-runtime.js";
+import {
+  sendWhatsAppCarousel,
+  whatsAppCarouselRecipientFromThreadId,
+} from "./whatsapp-carousel.js";
 
 /**
  * Parsed platform credentials, filled from process.env at the composition
@@ -329,6 +333,7 @@ export function messagingPlatformsFromEnv(
       }),
       medium: whatsappMedium,
       peekStatuses: parseWhatsAppStatuses,
+      sendCarousel: createWhatsAppCarouselSender(env),
       isPermanentSendError: (error) =>
         error instanceof WhatsAppApiError && error.errorCode === WHATSAPP_REENGAGEMENT_REQUIRED,
     });
@@ -663,6 +668,29 @@ export function parseWhatsAppStatuses(payload: unknown): MessagingOutboundStatus
     }
   }
   return statuses;
+}
+
+/** The Graph API origin and version the vendored adapter's requests use. */
+const WHATSAPP_GRAPH_API_URL = "https://graph.facebook.com/v25.0";
+
+/**
+ * The WhatsApp carousel sender, built from the same credentials the platform
+ * uses: product cards ride as interactive media carousels instead of text.
+ */
+export function createWhatsAppCarouselSender(
+  env: MessagingEnvironmentValues,
+): NonNullable<MessagingPlatform["sendCarousel"]> {
+  return async ({ threadId, body, cards }) =>
+    sendWhatsAppCarousel(
+      {
+        accessToken: env.whatsappAccessToken ?? "",
+        apiUrl: WHATSAPP_GRAPH_API_URL,
+        phoneNumberId: env.whatsappPhoneNumberId ?? "",
+        recipient: whatsAppCarouselRecipientFromThreadId(threadId),
+      },
+      cards,
+      body,
+    ).then(({ messageId }) => ({ handle: messageId }));
 }
 
 /**

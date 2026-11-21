@@ -273,6 +273,28 @@ export function ProductCard({ block }: { block: Extract<MessageBlock, { kind: "p
 }
 
 /**
+ * Products as one horizontal carousel: a slide per product card, scrolled
+ * side by side instead of stacked or listed as a table.
+ */
+export function ProductCarousel({
+  blocks,
+}: {
+  blocks: Array<Extract<MessageBlock, { kind: "product_card" }>>;
+}) {
+  return (
+    <div data-testid="product-carousel" className="w-full overflow-x-auto px-1">
+      <div className="flex w-max items-start gap-4">
+        {blocks.map((block) => (
+          <div key={block.url} className="w-[320px] shrink-0">
+            <ProductCard block={block} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * The publication card a run posts after a public action (save_opportunity): who applied,
  * who was denied, and whether the evidence behind it was validated. It is a read-only
  * summary, so it has no controls beyond the GFIN link.

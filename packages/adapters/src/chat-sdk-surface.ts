@@ -15,6 +15,7 @@ import type {
   MessagingSendRequest,
   MessagingSendResult,
   MessagingSurface,
+  WhatsAppCarouselCard,
 } from "@rakazo/adapter-kit";
 import { getLogger } from "@rakazo/logging";
 import type { Adapter, Message, PostableMarkdown, Root, Thread } from "chat";
@@ -128,6 +129,16 @@ export interface MessagingPlatform {
   transport?: (raw: unknown) => string | null;
   /** What the person sent, when the provider names it (voice note, sticker, location). */
   medium?: (raw: unknown) => MessagingMedium;
+  /**
+   * Sends WhatsApp interactive media carousels (`dm_carousel` rows). Only the
+   * WhatsApp platform sets this; the surface throws without it, so a visual
+   * is never swapped for a weaker one.
+   */
+  sendCarousel?: (request: {
+    threadId: string;
+    body: string;
+    cards: WhatsAppCarouselCard[];
+  }) => Promise<MessagingSendResult>;
   /**
    * Optional team-room enrichment (workspace id, mention/ambient kind, bot
    * sender, reply thread) derived from the raw platform payload.
@@ -298,6 +309,21 @@ export class ChatSdkMessagingSurface implements MessagingSurface {
     } catch (error) {
       throw sendError(mounted.platform, error);
     }
+  }
+
+  async sendWhatsAppCarousel(
+    request: { threadId: string; body: string; cards: WhatsAppCarouselCard[] },
+    _context: AdapterContext,
+  ): Promise<MessagingSendResult> {
+    const mounted = this.mountedForThread(request.threadId);
+    const send = mounted.platform.sendCarousel;
+    if (!send) {
+      throw new MessagingSendError(
+        new Error(`${mounted.platform.provider} does not support carousel sends`),
+        { permanent: true, retryAfterMs: null },
+      );
+    }
+    return send(request);
   }
 
   async openDirectThread(

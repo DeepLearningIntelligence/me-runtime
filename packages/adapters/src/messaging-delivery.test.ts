@@ -101,6 +101,7 @@ function createFakeSurface(sendError?: Error) {
   const openDirectThread = vi.fn(
     async (_provider: string, address: string) => `sendblue:opened:${address}`,
   );
+  const sendWhatsAppCarousel = vi.fn(async () => ({ handle: "handle-carousel-1" }));
   const messaging: MessagingSurface = {
     describe: () => ({
       id: "chat-sdk",
@@ -122,10 +123,11 @@ function createFakeSurface(sendError?: Error) {
     handleWebhook: () => null,
     onInbound: () => undefined,
     sendToThread,
+    sendWhatsAppCarousel,
     openDirectThread,
     acknowledge: vi.fn(async () => undefined),
   };
-  return { messaging, sendToThread, openDirectThread };
+  return { messaging, sendToThread, openDirectThread, sendWhatsAppCarousel };
 }
 
 /** A message_user update or another interim message a running run posted. */
@@ -146,7 +148,9 @@ function createDeps(overrides: {
   sourceMessage?: { runId: string; clientNonce?: string | null } | null;
 }) {
   const rows = [...(overrides.outboundRows ?? [])] as Array<Record<string, unknown>>;
-  const { messaging, sendToThread, openDirectThread } = createFakeSurface(overrides.sendError);
+  const { messaging, sendToThread, openDirectThread, sendWhatsAppCarousel } = createFakeSurface(
+    overrides.sendError,
+  );
   // Stateful identity row so a cached dmThreadId is visible to later reads.
   const identityRow =
     overrides.identity === null ? null : { ...identity, ...(overrides.identity ?? {}) };
@@ -308,6 +312,7 @@ function createDeps(overrides: {
     artifacts: { get: vi.fn(async (storageKey: string) => new TextEncoder().encode(storageKey)) },
     sendToThread,
     openDirectThread,
+    sendWhatsAppCarousel,
     rows,
   };
 }
@@ -338,6 +343,100 @@ describe("deliverMessagingOutbound", () => {
       where: { id: "run-1", trigger: "messaging", status: "completed" },
       data: { messagingMirroredAt: expect.any(Date) },
     });
+  });
+
+  it("queues a product message as a WhatsApp carousel row when the identity is WhatsApp", async () => {
+    const deps = createDeps({
+      identity: { provider: "whatsapp", dmThreadId: "whatsapp:dm-1" },
+      messages: [
+        {
+          id: "m-9",
+          blocks: [
+            {
+              kind: "product_card",
+              url: "https://shop.example.com/wand",
+              title: "Zephyr Wand",
+              price: "$49.99",
+              attributes: [{ k: "Color", v: "Birch" }],
+              imageUrl: "https://cdn.example.com/wand.jpg",
+              source: "https://shop.example.com/wand",
+              verifiedAt: "2026-11-21T00:00:00.000Z",
+            },
+            {
+              kind: "product_card",
+              url: "https://shop.example.com/wand2",
+              title: "Zephyr Wand 2",
+              price: "$59.99",
+              attributes: [],
+              imageUrl: "https://cdn.example.com/wand2.jpg",
+              source: "https://shop.example.com/wand2",
+              verifiedAt: "2026-11-21T00:00:00.000Z",
+            },
+            {
+              // A product without an image cannot ride in a carousel.
+              kind: "product_card",
+              url: "https://shop.example.com/noimage",
+              title: "No Image",
+              price: "$1",
+              attributes: [],
+              source: "https://shop.example.com/noimage",
+              verifiedAt: "2026-11-21T00:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    });
+
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    const carousel = deps.rows.find((row) => row.kind === "dm_carousel");
+    expect(carousel).toBeDefined();
+    expect(carousel!.idempotencyKey).toBe("msg:m-9:carousel");
+    expect(carousel!.identityId).toBe("mi-1");
+    const cards = JSON.parse(carousel!.body as string);
+    expect(
+      cards.map((card: { action: { parameters: { url: string } } }) => card.action.parameters.url),
+    ).toEqual(["https://shop.example.com/wand", "https://shop.example.com/wand2"]);
+    expect(cards[0]!.header.image.link).toBe("https://cdn.example.com/wand.jpg");
+  });
+
+  it("delivers a WhatsApp carousel row through sendWhatsAppCarousel", async () => {
+    const cards = [
+      {
+        card_index: 0,
+        type: "cta_url",
+        header: { type: "image", image: { link: "https://cdn.example.com/wand.jpg" } },
+        action: {
+          name: "cta_url",
+          parameters: { display_text: "View product", url: "https://shop.example.com/wand" },
+        },
+      },
+    ];
+    const body = JSON.stringify(cards);
+    const deps = createDeps({
+      identity: { provider: "whatsapp", dmThreadId: "whatsapp:dm-1" },
+      outboundRows: [
+        {
+          id: "row-carousel",
+          kind: "dm_carousel",
+          identityId: "mi-1",
+          body,
+          idempotencyKey: "msg:m-1:carousel",
+          sourceMessageId: "m-1",
+          status: "pending",
+        },
+      ],
+    });
+
+    await deliverMessagingOutbound(deps, { runId: "run-1" }, context);
+
+    expect(deps.sendWhatsAppCarousel).toHaveBeenCalledExactlyOnceWith(
+      { threadId: "whatsapp:dm-1", body, cards },
+      context,
+    );
+    const row = deps.rows.find((row) => row.id === "row-carousel");
+    expect(row!.status).toBe("sent");
+    expect(row!.providerHandle).toBe("handle-carousel-1");
   });
 
   it("sends one web approval notice for a paused WhatsApp run, even when delivery replays", async () => {

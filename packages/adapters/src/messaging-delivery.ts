@@ -5,6 +5,7 @@ import type {
   MessagingOutboundAttachment,
   MessagingOutboundStatus,
   MessagingSurface,
+  WhatsAppCarouselCard,
 } from "@rakazo/adapter-kit";
 import { messagingDeliverJob, runContinueJob } from "@rakazo/adapter-kit";
 import type { MessageBlock } from "@rakazo/contracts";
@@ -25,7 +26,12 @@ import { MessagingSendError } from "./chat-sdk-surface.js";
 import { messagingInboundHandle } from "./messaging-inbound-nonce.js";
 import { splitOutboundBody } from "./messaging-platforms.js";
 import { settleMessageReceipt } from "./messaging-receipts.js";
+import type { ProductCardFacts } from "./product-card.js";
 import { isUserProgressClientNonce } from "./user-progress.js";
+import {
+  productCardsToWhatsAppCarouselCards,
+  WHATSAPP_CAROUSEL_MIN_CARDS,
+} from "./whatsapp-carousel.js";
 
 /**
  * Margin under vendor consecutive-outbound caps (sendblue enforces one hard):
@@ -213,9 +219,34 @@ async function mirrorRun(deps: MessagingDeliveryDeps, runId: string, progress = 
       )
     : -1;
   const rows = (held === -1 ? rowsByMessage : rowsByMessage.slice(0, held)).flat();
+  // Products ride as one WhatsApp interactive media carousel instead of text: the message's text
+  // goes out as usual, and the carousel row is queued after it. Mid-run progress mirrors skip it,
+  // like other cards, because the end-of-run mirror sends the whole reply's carousel once.
+  if (!progress && identity.provider === "whatsapp") {
+    for (const message of messages) {
+      const cards = productCardsToWhatsAppCarouselCards(productCardFacts(message.blocks));
+      if (cards.length < WHATSAPP_CAROUSEL_MIN_CARDS) continue;
+      rows.push({
+        idempotencyKey: `msg:${message.id}:carousel`,
+        kind: "dm_carousel",
+        identityId: identity.id,
+        body: JSON.stringify(cards),
+        sourceMessageId: message.id,
+      });
+    }
+  }
   // The per-message key dedupes replays of the same approval and the final reply.
   if (rows.length) await insertOutboundRows(deps.prisma, { identityId: identity.id }, rows);
   return run;
+}
+
+/** Product facts the carousel translator reads: only cards with an image can ride. */
+function productCardFacts(blocks: unknown): ProductCardFacts[] {
+  return (Array.isArray(blocks) ? blocks : []).flatMap((block) =>
+    block?.kind === "product_card" && typeof block.imageUrl === "string"
+      ? [block as ProductCardFacts]
+      : [],
+  );
 }
 
 function hasPendingApproval(blocks: unknown): boolean {
@@ -663,6 +694,46 @@ async function deliverRow(
       await deps.prisma.messagingOutbound.update({
         where: { id: row.id },
         data: { providerHandle: sent.handle },
+      });
+      return true;
+    }
+    if (row.kind === "dm_carousel") {
+      // Fail closed when the provider surface cannot show carousels at all.
+      if (!deps.messaging.sendWhatsAppCarousel) {
+        await deps.prisma.messagingOutbound.update({
+          where: { id: row.id },
+          data: { status: "failed" },
+        });
+        return true;
+      }
+      const identity = row.identityId
+        ? await deps.prisma.messagingIdentity.findUnique({ where: { id: row.identityId } })
+        : null;
+      if (!identity || (await accountDeactivated(deps.prisma, identity.userId))) {
+        await deps.prisma.messagingOutbound.update({
+          where: { id: row.id },
+          data: { status: "failed" },
+        });
+        return true;
+      }
+      const threadId = await resolveDirectThread(deps, identity, context);
+      const sent = await deps.messaging.sendWhatsAppCarousel(
+        {
+          threadId,
+          body: row.body,
+          cards: JSON.parse(row.body) as WhatsAppCarouselCard[],
+        },
+        context,
+      );
+      accepted = true;
+      await settleReply(deps, identity, threadId, row, context);
+      await deps.prisma.messagingOutbound.updateMany({
+        where: { id: row.id },
+        data: { providerHandle: sent.handle },
+      });
+      await deps.prisma.messagingIdentity.update({
+        where: { id: identity.id },
+        data: { outboundSinceInbound: { increment: 1 } },
       });
       return true;
     }

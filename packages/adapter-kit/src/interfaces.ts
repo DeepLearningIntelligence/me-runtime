@@ -95,6 +95,7 @@ import type {
   WebSearchCapabilities,
   WebSearchHit,
   WebSearchRequest,
+  WhatsAppCarouselCard,
   WorkspaceDirectoryRequest,
   WorkspaceExportLimits,
 } from "./types.js";
@@ -585,6 +586,16 @@ export interface MessagingSurface {
   onInbound(sink: (event: MessagingInboundEvent) => Promise<void>): void;
   sendToThread(
     request: MessagingSendRequest,
+    context: AdapterContext,
+  ): Promise<MessagingSendResult>;
+  /**
+   * Send a WhatsApp interactive media carousel (product cards) for a thread.
+   * Set by surfaces whose provider supports it; mirrors over that provider
+   * deliver through here instead of sendToThread. Absent means the provider
+   * cannot show the carousel, so no visual is swapped for a weaker one.
+   */
+  sendWhatsAppCarousel?(
+    request: { threadId: string; body: string; cards: WhatsAppCarouselCard[] },
     context: AdapterContext,
   ): Promise<MessagingSendResult>;
   /** Resolve (or create) the 1:1 thread for a provider address. */
