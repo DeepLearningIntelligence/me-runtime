@@ -168,7 +168,7 @@ it("walks name, email, WhatsApp, invites and ends on Back to WhatsApp after an i
   expect(updateUser).toHaveBeenCalledWith({ name: "Ada" });
   expect(host.querySelector("h1")!.textContent).toBe("Add your email");
   await click("Skip for now");
-  expect(host.querySelector("h1")!.textContent).toBe("Where will you use me?");
+  expect(host.querySelector("h1")!.textContent).toBe("Where will you use me_dli?");
   await click("Continue");
   expect(host.querySelector("h1")!.textContent).toBe("Connect WhatsApp");
   expect(host.textContent).toContain("Send the pre-filled message");
@@ -218,7 +218,7 @@ it("skips the manual link step when the door linked WhatsApp itself", async () =
   updateUser.mockResolvedValue({ error: null });
   await click("Continue");
   await click("Skip for now");
-  expect(host.querySelector("h1")!.textContent).toBe("Where will you use me?");
+  expect(host.querySelector("h1")!.textContent).toBe("Where will you use me_dli?");
   await click("Continue");
   // No "Connect WhatsApp" step: the number the door bound is already linked.
   expect(host.querySelector("h1")!.textContent).toBe("Invite friends");
