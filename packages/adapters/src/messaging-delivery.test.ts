@@ -1920,6 +1920,42 @@ describe("WhatsApp rendered outbound delivery", () => {
     expect(deps.rows.map((row) => row.status)).toEqual(["sent", "sent"]);
   });
 
+  it("sends inbox and product tables as readable entries while preserving links and code", async () => {
+    const body = [
+      "## Unread email",
+      "",
+      "From | Subject | Time",
+      "--- | --- | ---",
+      "Alex | [Project update](https://example.com/message) | 9 AM",
+      "Sam | Release notes | 8 AM",
+      "",
+      "## Products",
+      "",
+      "| Product | Price | Best for |",
+      "| --- | --- | --- |",
+      "| [Example glasses](https://example.com/product) | $349 | Open-source development |",
+      "",
+      "```",
+      "code | value",
+      "--- | ---",
+      "x | y",
+      "```",
+    ].join("\n");
+
+    const { sends } = await deliver(body);
+
+    expect(sends).toHaveLength(1);
+    expect(sends[0]).toContain("*From:* Alex\n*Subject:*");
+    expect(sends[0]).toContain("https://example.com/message");
+    expect(sends[0]).toContain("*Time:* 9 AM\n\n*From:* Sam");
+    expect(sends[0]).toContain("*Product:*");
+    expect(sends[0]).toContain("https://example.com/product");
+    expect(sends[0]).toContain("*Price:* $349\n*Best for:* Open-source development");
+    expect(sends[0]).not.toContain("From | Subject");
+    expect(sends[0]).not.toContain("| Product |");
+    expect(sends[0]).toContain("code | value\n--- | ---\nx | y");
+  });
+
   it("sends a table that renders past the limit as one request per queued part", async () => {
     const rows = Array.from({ length: 200 }, (_, i) => `| ${i} | x | 😀 |`);
     const body = [

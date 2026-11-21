@@ -19,7 +19,13 @@ import type {
 } from "@rakazo/adapter-kit";
 import { getLogger } from "@rakazo/logging";
 import type { Adapter } from "chat";
-import { ConsoleLogger, convertEmojiPlaceholders, markdownToPlainText } from "chat";
+import {
+  ConsoleLogger,
+  convertEmojiPlaceholders,
+  markdownToPlainText,
+  parseMarkdown,
+  stringifyMarkdown,
+} from "chat";
 import type { SendblueAdapterConfig, SendblueThreadId } from "chat-adapter-sendblue";
 import type { ClientOptions as SendblueClientOptions } from "sendblue";
 import type { MessagingPlatform } from "./chat-sdk-surface.js";
@@ -502,10 +508,51 @@ function withTelegramRedelivery(adapter: TelegramAdapter) {
 
 /** Split before enqueueing so retries only resend the parts that failed. */
 export function splitOutboundBody(provider: string, body: string): string[] {
-  if (provider === "whatsapp") return splitWhatsAppPart(body);
+  if (provider === "whatsapp") return splitWhatsAppPart(stackWhatsAppTables(body));
   if (provider !== "telegram" && !provider.startsWith("telegram-")) return [body];
 
   return splitTelegramPart(body);
+}
+
+function stackWhatsAppTables(body: string): string {
+  if (!body.includes("|")) return body;
+  const markdown = parseMarkdown(body);
+  // Preserve the original Markdown outside each table, including code fences.
+  const replacements: { start: number; end: number; markdown: string }[] = [];
+  for (const node of markdown.children) {
+    if (node.type !== "table" || !node.position) continue;
+    const { start, end } = node.position;
+    if (start.offset === undefined || end.offset === undefined) continue;
+    const [header, ...rows] = node.children;
+    if (!header || rows.length === 0) continue;
+    const labels = header.children.map(({ children }) =>
+      markdownToPlainText(
+        stringifyMarkdown({
+          type: "root",
+          children: [{ type: "paragraph", children }],
+        }),
+      ).trim(),
+    );
+    const entries = rows.map((row) =>
+      row.children
+        .map(({ children }, index) => {
+          if (!children.length) return "";
+          const value = stringifyMarkdown({
+            type: "root",
+            children: [{ type: "paragraph", children }],
+          }).trim();
+          const label = labels[index];
+          return label ? `**${label.replace(/[*_\\]/g, "\\$&")}:** ${value}` : value;
+        })
+        .filter(Boolean)
+        .join("\n"),
+    );
+    replacements.push({ start: start.offset, end: end.offset, markdown: entries.join("\n\n") });
+  }
+  for (const { start, end, markdown } of replacements.reverse()) {
+    body = body.slice(0, start) + markdown + body.slice(end);
+  }
+  return body;
 }
 
 /** Split like the SDK, which counts UTF-16 units, but never end a part on half an emoji. */
